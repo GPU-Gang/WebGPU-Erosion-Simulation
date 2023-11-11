@@ -1,4 +1,5 @@
 # WebGPU-Erosion-Simulation
+Authors:
 
 **Please visit the [WebGPU Samples website](//webgpu.github.io/webgpu-samples/) to run the samples!**
 
