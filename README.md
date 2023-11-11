@@ -1,4 +1,4 @@
-# WebGPU Samples
+# WebGPU-Erosion-Simulation
 
 **Please visit the [WebGPU Samples website](//webgpu.github.io/webgpu-samples/) to run the samples!**
 
@@ -17,4 +17,4 @@ requires an installation of [Node.js](https://nodejs.org/en/).
   sources: `npm start`. You can navigate to http://localhost:3000 to view the project.
 - For production, compile the project: `npm run build`.
 - To run a production server to serve the built assets, do `npm run serve`.
-# WebGPU-Erosion-Simulation
+
