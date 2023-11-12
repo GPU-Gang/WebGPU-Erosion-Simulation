@@ -110,7 +110,7 @@ const SampleLayout: React.FunctionComponent<
 
   const [error, setError] = useState<unknown | null>(null);
 
-  const [activeHash, setActiveHash] = useState<string | null>(null);
+  const [_, setActiveHash] = useState<string | null>(null);
   useEffect(() => {
     if (currentHash) {
       setActiveHash(currentHash[1]);
