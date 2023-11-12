@@ -2,9 +2,9 @@
 Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](https://www.linkedin.com/in/nagpalsaksham/), [Linda Zhu](https://www.linkedin.com/in/lindadaism/)
 
 
-**Please visit the [WebGPU Samples website](//webgpu.github.io/webgpu-samples/) to run more samples!**
+**Please visit the [WebGPU Erosion Simulation page](https://gpu-gang.github.io/WebGPU-Erosion-Simulation/) to try our live demo!**
 
-The WebGPU Samples are a set of samples and demos
+This project is adapted from the WebGPU samples. [WebGPU Samples](https://webgpu.github.io/webgpu-samples/) are a set of samples and demos
 demonstrating the use of the [WebGPU API](//webgpu.dev). Please see the current
 implementation status and how to run WebGPU in your browser at
 [webgpu.io](//webgpu.io).
