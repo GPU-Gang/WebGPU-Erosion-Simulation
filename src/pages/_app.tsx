@@ -9,7 +9,7 @@ import styles from './MainLayout.module.css';
 
 import { pages } from './samples/[slug]';
 
-const title = 'WebGPU Samples';
+const title = 'Terrain X';
 
 type PageType = {
   [key: string]: React.ComponentType & { render: { preload: () => void } };
@@ -37,7 +37,7 @@ const MainLayout: React.FunctionComponent<AppProps> = ({
         <title>{title}</title>
         <meta
           name="description"
-          content="The WebGPU Samples are a set of samples demonstrating the use of the WebGPU API."
+          content="Interactive terrain authoring and erosion simulation on WebGPU"
         />
         <meta
           name="viewport"
@@ -45,6 +45,8 @@ const MainLayout: React.FunctionComponent<AppProps> = ({
         />
       </Head>
       <div className={styles.wrapper}>
+        {/* NOTE: This is for the nav-bar on the left in the WebGPU samples, if we want it back later.
+
         <nav
           className={`${styles.panel} ${styles.container}`}
           data-expanded={listExpanded}
@@ -91,22 +93,8 @@ const MainLayout: React.FunctionComponent<AppProps> = ({
               })}
             </ul>
             <hr />
-            <h3>Other Pages</h3>
-            <ul className={styles.exampleList}>
-              <li>
-                <a
-                  rel="noreferrer"
-                  target="_blank"
-                  href={`${
-                    process.env.BASE_PATH || ''
-                  }/workload-simulator.html`}
-                >
-                  Workload Simulator ↗️
-                </a>
-              </li>
-            </ul>
           </div>
-        </nav>
+        </nav> */}
         <Component {...pageProps} />
       </div>
     </>

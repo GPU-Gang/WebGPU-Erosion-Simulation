@@ -14,41 +14,7 @@ type PageComponentType = {
 };
 
 export const pages: PageComponentType = {
-  helloTriangle: dynamic(() => import('../../sample/helloTriangle/main')),
-  helloTriangleMSAA: dynamic(
-    () => import('../../sample/helloTriangleMSAA/main')
-  ),
-  resizeCanvas: dynamic(() => import('../../sample/resizeCanvas/main')),
-  rotatingCube: dynamic(() => import('../../sample/rotatingCube/main')),
-  twoCubes: dynamic(() => import('../../sample/twoCubes/main')),
-  texturedCube: dynamic(() => import('../../sample/texturedCube/main')),
-  instancedCube: dynamic(() => import('../../sample/instancedCube/main')),
-  fractalCube: dynamic(() => import('../../sample/fractalCube/main')),
-  cameras: dynamic(() => import('../../sample/cameras/main')),
-  cubemap: dynamic(() => import('../../sample/cubemap/main')),
-  computeBoids: dynamic(() => import('../../sample/computeBoids/main')),
-  animometer: dynamic(() => import('../../sample/animometer/main')),
-  videoUploading: dynamic(() => import('../../sample/videoUploading/main')),
-  videoUploadingWebCodecs: dynamic(
-    () => import('../../sample/videoUploadingWebCodecs/main')
-  ),
-  samplerParameters: dynamic(
-    () => import('../../sample/samplerParameters/main')
-  ),
-  imageBlur: dynamic(() => import('../../sample/imageBlur/main')),
-  shadowMapping: dynamic(() => import('../../sample/shadowMapping/main')),
-  reversedZ: dynamic(() => import('../../sample/reversedZ/main')),
-  deferredRendering: dynamic(
-    () => import('../../sample/deferredRendering/main')
-  ),
-  particles: dynamic(() => import('../../sample/particles/main')),
-  cornell: dynamic(() => import('../../sample/cornell/main')),
-  gameOfLife: dynamic(() => import('../../sample/gameOfLife/main')),
-  renderBundles: dynamic(() => import('../../sample/renderBundles/main')),
-  worker: dynamic(() => import('../../sample/worker/main')),
-  'A-buffer': dynamic(() => import('../../sample/a-buffer/main')),
-  bitonicSort: dynamic(() => import('../../sample/bitonicSort/main')),
-  normalMap: dynamic(() => import('../../sample/normalMap/main')),
+  terrain: dynamic(() => import('../../sample/terrainX/main')),
 };
 
 function Page({ slug }: Props): JSX.Element {

@@ -445,11 +445,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   requestAnimationFrame(frame);
 };
 
-const Particles: () => JSX.Element = () =>
+const Terrain: () => JSX.Element = () =>
   makeSample({
-    name: 'Particles',
+    name: 'Terrain X',
     description:
-      'This example demonstrates rendering of particles simulated with compute shaders.',
+      'Interactive terrain authoring and erosion simulation on WebGPU',
     gui: true,
     init,
     sources: [
@@ -471,4 +471,4 @@ const Particles: () => JSX.Element = () =>
     filename: __filename,
   });
 
-export default Particles;
+export default Terrain;

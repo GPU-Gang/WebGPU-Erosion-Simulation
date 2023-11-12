@@ -183,7 +183,7 @@ const SampleLayout: React.FunctionComponent<
           `,
           }}
         />
-        <title>{`${props.name} - WebGPU Samples`}</title>
+        <title>{`Terrain X`}</title>
         <meta name="description" content={props.description} />
         <meta httpEquiv="origin-trial" content={props.originTrial} />
       </Head>
@@ -223,7 +223,8 @@ const SampleLayout: React.FunctionComponent<
         ></div>
         <canvas ref={canvasRef}></canvas>
       </div>
-      <div>
+      {/* NOTE: this below is for viewing source code */}
+      {/* <div>
         <nav className={styles.sourceFileNav}>
           <ul>
             {sources.map((src, i) => {
@@ -252,7 +253,7 @@ const SampleLayout: React.FunctionComponent<
             />
           );
         })}
-      </div>
+      </div> */}
     </main>
   );
 };
