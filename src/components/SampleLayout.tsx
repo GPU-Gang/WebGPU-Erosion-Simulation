@@ -99,21 +99,6 @@ const SampleLayout: React.FunctionComponent<
   return (
     <main>
       <Head>
-        <style
-          dangerouslySetInnerHTML={{
-            __html: `
-            .CodeMirror {
-              height: auto !important;
-              margin: 1em 0;
-            }
-
-            .CodeMirror-scroll {
-              height: auto !important;
-              overflow: visible !important;
-            }
-          `,
-          }}
-        />
         <title>{`Terrain X`}</title>
         <meta name="description" content={props.description} />
         <meta httpEquiv="origin-trial" content={props.originTrial} />

@@ -538,27 +538,6 @@ const Terrain: () => JSX.Element = () =>
     gui: true,
     stats: true,
     init,
-    sources: [
-      {
-        name: __filename.substring(__dirname.length + 1),
-        contents: __SOURCE__,
-      },
-      {
-        name: './particle.wgsl',
-        contents: particleWGSL,
-        editable: true,
-      },
-      {
-        name: './probabilityMap.wgsl',
-        contents: probabilityMapWGSL,
-        editable: true,
-      },
-      {
-        name: '../../shaders/fullscreenTexturedQuad.wgsl',
-        contents: fullscreenTexturedWGSL,
-        editable: true,
-      },
-    ],
     filename: __filename,
   });
 
