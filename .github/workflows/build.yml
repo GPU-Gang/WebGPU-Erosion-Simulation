@@ -5,7 +5,7 @@ on:
       - main
   push:
     branches:
-      - nextjs # Testing the workflow on this branch.
+      - fix-deployment # Testing the workflow on this branch.
 jobs:
   build:
     runs-on: ubuntu-latest
