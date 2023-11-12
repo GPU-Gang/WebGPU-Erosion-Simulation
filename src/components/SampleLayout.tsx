@@ -110,13 +110,13 @@ const SampleLayout: React.FunctionComponent<
 
   const [error, setError] = useState<unknown | null>(null);
 
-  const [_, setActiveHash] = useState<string | null>(null);
+  // const [activeHash, setActiveHash] = useState<string | null>(null);
   useEffect(() => {
-    if (currentHash) {
-      setActiveHash(currentHash[1]);
-    } else {
-      setActiveHash(sources[0].name);
-    }
+    // if (currentHash) {
+    //   setActiveHash(currentHash[1]);
+    // } else {
+    //   setActiveHash(sources[0].name);
+    // }
 
     if (gui && guiParentRef.current) {
       guiParentRef.current.appendChild(gui.domElement);
