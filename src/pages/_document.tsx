@@ -23,7 +23,8 @@ const Document: React.FunctionComponent = () => {
         <link
           rel="icon"
           type="image/x-icon"
-          href={`${process.env.BASE_PATH || ''}/favicon.ico`}
+          href={`${process.env.BASE_PATH || ''}/favicon.ico`} 
+          // NOTE: The "favicon.ico" above can be used to update the icon on the tab!
         />
       </Head>
       <body>
