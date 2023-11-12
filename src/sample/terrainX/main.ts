@@ -253,10 +253,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   // ping-pong buffers for later?
   const textures = [0, 1].map(() => {
     return device.createTexture({
-      size: {
-        width: srcWidth,
-        height: srcHeight,
-      },
+      size: [srcWidth,srcHeight, 1],
       format: 'rgba8unorm',
       usage:
         GPUTextureUsage.COPY_DST |
