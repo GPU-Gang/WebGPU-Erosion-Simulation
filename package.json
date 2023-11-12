@@ -1,12 +1,12 @@
 {
-  "name": "webgpu-samples",
-  "version": "0.1.0",
-  "description": "Samples using the WebGPU API",
+  "name": "webgpu-terrain-x",
+  "version": "1.0.0",
+  "description": "Interactive terrain authoring and erosion simulation on WebGPU",
   "license": "BSD-3-Clause",
   "private": false,
   "repository": {
     "type": "git",
-    "url": "https://github.com/austinEng/webgpu-samples.git"
+    "url": "https://github.com/LinDadaism/WebGPU-Erosion-Simulation"
   },
   "scripts": {
     "lint": "eslint --ext .ts,.tsx src/",
