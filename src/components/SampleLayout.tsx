@@ -73,17 +73,17 @@ const SampleLayout: React.FunctionComponent<
     gui?: boolean;
     stats?: boolean;
     init: SampleInit;
-    sources: SourceFileInfo[];
+    // sources: SourceFileInfo[];
   }>
 > = (props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const sources = useMemo(
-    () =>
-      props.sources.map(({ name, contents }) => {
-        return { name, ...makeCodeMirrorEditor(contents) };
-      }),
-    props.sources
-  );
+  // const sources = useMemo(
+  //   () =>
+  //     props.sources.map(({ name, contents }) => {
+  //       return { name, ...makeCodeMirrorEditor(contents) };
+  //     }),
+  //   props.sources
+  // );
 
   const guiParentRef = useRef<HTMLDivElement | null>(null);
   const gui: GUI | undefined = useMemo(() => {
@@ -105,8 +105,8 @@ const SampleLayout: React.FunctionComponent<
     return undefined;
   }, []);
 
-  const router = useRouter();
-  const currentHash = router.asPath.match(/#([a-zA-Z0-9\.\/]+)/);
+  // const router = useRouter();
+  // const currentHash = router.asPath.match(/#([a-zA-Z0-9\.\/]+)/);
 
   const [error, setError] = useState<unknown | null>(null);
 
