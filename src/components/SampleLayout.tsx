@@ -1,13 +1,8 @@
 import Head from 'next/head';
-import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GUI } from 'dat.gui';
 import type { Stats } from 'stats-js';
-import type { Editor, EditorConfiguration } from 'codemirror';
-interface CodeMirrorEditor extends Editor {
-  updatedSource: (source: string) => void;
-}
 
 import styles from './SampleLayout.module.css';
 
