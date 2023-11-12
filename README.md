@@ -1,5 +1,6 @@
-# WebGPU-Erosion-Simulation
-Authors:
+# Interactive Erosion Simulation in WebGPU
+Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](https://www.linkedin.com/in/nagpalsaksham/), [Linda Zhu](https://www.linkedin.com/in/lindadaism/)
+
 
 **Please visit the [WebGPU Samples website](//webgpu.github.io/webgpu-samples/) to run the samples!**
 
