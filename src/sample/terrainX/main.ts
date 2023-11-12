@@ -251,19 +251,19 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   }
 
   // ping-pong buffers for later?
-  const textures = [0, 1].map(() => {
-    return device.createTexture({
-      size: {
-        width: srcWidth,
-        height: srcHeight,
-      },
-      format: 'rgba8unorm',
-      usage:
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.TEXTURE_BINDING,
-    });
-  });
+  // const textures = [0, 1].map(() => {
+  //   return device.createTexture({
+  //     size: {
+  //       width: srcWidth,
+  //       height: srcHeight,
+  //     },
+  //     format: 'rgba8unorm',
+  //     usage:
+  //       GPUTextureUsage.COPY_DST |
+  //       GPUTextureUsage.STORAGE_BINDING |
+  //       GPUTextureUsage.TEXTURE_BINDING,
+  //   });
+  // });
 
   //////////////////////////////////////////////////////////////////////////////
   // Probability map generation
