@@ -3,6 +3,7 @@ import { makeSample, SampleInit } from '../../components/SampleLayout';
 
 import particleWGSL from './particle.wgsl';
 import probabilityMapWGSL from './probabilityMap.wgsl';
+import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
 
 const numParticles = 50000;
 const particlePositionOffset = 0;
@@ -114,6 +115,39 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     },
   });
 
+  //////////////////////////////////////////////////////////////////////////////
+  // 2D Texture Render Pipeline
+  //////////////////////////////////////////////////////////////////////////////
+  const fullscreenTexturePipeline = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: {
+      module: device.createShaderModule({
+        code: fullscreenTexturedWGSL,
+      }),
+      entryPoint: 'vert_main',
+    },
+    fragment: {
+      module: device.createShaderModule({
+        code: fullscreenTexturedWGSL,
+      }),
+      entryPoint: 'frag_main',
+      targets: [
+        {
+          format: presentationFormat,
+        },
+      ],
+    },
+    primitive: {
+      topology: 'triangle-list',
+    },
+  });
+
+  const sampler = device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear',
+  });
+//////////////////////////////////////////////////////////////////////////////
+
   const depthTexture = device.createTexture({
     size: [canvas.width, canvas.height],
     format: 'depth24plus',
@@ -184,9 +218,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   let textureWidth = 1;
   let textureHeight = 1;
   let numMipLevels = 1;
+  let [srcWidth, srcHeight] = [1, 1];
   {
     const response = await fetch('../assets/img/terrainXLogo.png');
     const imageBitmap = await createImageBitmap(await response.blob());
+    [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
     // Calculate number of mip levels required to generate the probability map
     while (
@@ -198,7 +234,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       numMipLevels++;
     }
     texture = device.createTexture({
-      size: [imageBitmap.width, imageBitmap.height, 1],
+      size: [srcWidth, srcHeight, 1],
       mipLevelCount: numMipLevels,
       format: 'rgba8unorm',
       usage:
@@ -210,9 +246,24 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     device.queue.copyExternalImageToTexture(
       { source: imageBitmap },
       { texture: texture },
-      [imageBitmap.width, imageBitmap.height]
+      [srcWidth, srcHeight]
     );
   }
+
+  // ping-pong buffers for later?
+  const textures = [0, 1].map(() => {
+    return device.createTexture({
+      size: {
+        width: srcWidth,
+        height: srcHeight,
+      },
+      format: 'rgba8unorm',
+      usage:
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING,
+    });
+  });
 
   //////////////////////////////////////////////////////////////////////////////
   // Probability map generation
@@ -318,6 +369,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const simulationParams = {
     simulate: true,
     deltaTime: 0.04,
+    render2D: false,
   };
 
   const simulationUBOBufferSize =
@@ -362,6 +414,20 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       },
       {
         binding: 2,
+        resource: texture.createView(),
+      },
+    ],
+  });
+
+  const show2DRenderBindGroup = device.createBindGroup({
+    layout: fullscreenTexturePipeline.getBindGroupLayout(0),
+    entries: [
+      {
+        binding: 0,
+        resource: sampler,
+      },
+      {
+        binding: 1,
         resource: texture.createView(),
       },
     ],
@@ -422,20 +488,39 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
     const commandEncoder = device.createCommandEncoder();
     {
-      const passEncoder = commandEncoder.beginComputePass();
-      passEncoder.setPipeline(computePipeline);
-      passEncoder.setBindGroup(0, computeBindGroup);
-      passEncoder.dispatchWorkgroups(Math.ceil(numParticles / 64));
-      passEncoder.end();
+      const computePass = commandEncoder.beginComputePass();
+      computePass.setPipeline(computePipeline);
+      computePass.setBindGroup(0, computeBindGroup);
+      computePass.dispatchWorkgroups(Math.ceil(numParticles / 64));
+      computePass.end();
     }
     {
-      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-      passEncoder.setPipeline(renderPipeline);
-      passEncoder.setBindGroup(0, uniformBindGroup);
-      passEncoder.setVertexBuffer(0, particlesBuffer);
-      passEncoder.setVertexBuffer(1, quadVertexBuffer);
-      passEncoder.draw(6, numParticles, 0, 0);
-      passEncoder.end();
+      if (simulationParams.render2D) {
+        const passEncoder = commandEncoder.beginRenderPass({
+          colorAttachments: [
+            {
+              view: renderPassDescriptor.colorAttachments[0].view,
+              clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+              loadOp: 'clear',
+              storeOp: 'store',
+            },
+          ],
+        });
+        passEncoder.setPipeline(fullscreenTexturePipeline);
+        passEncoder.setBindGroup(0, show2DRenderBindGroup);
+        passEncoder.draw(6);
+        passEncoder.end();
+      }
+      else {
+        const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+
+        passEncoder.setPipeline(renderPipeline);
+        passEncoder.setBindGroup(0, uniformBindGroup);
+        passEncoder.setVertexBuffer(0, particlesBuffer);
+        passEncoder.setVertexBuffer(1, quadVertexBuffer);
+        passEncoder.draw(6, numParticles, 0, 0);
+        passEncoder.end();
+      }
     }
 
     device.queue.submit([commandEncoder.finish()]);
@@ -452,6 +537,27 @@ const Terrain: () => JSX.Element = () =>
       'Interactive terrain authoring and erosion simulation on WebGPU',
     gui: true,
     init,
+    sources: [
+      {
+        name: __filename.substring(__dirname.length + 1),
+        contents: __SOURCE__,
+      },
+      {
+        name: './particle.wgsl',
+        contents: particleWGSL,
+        editable: true,
+      },
+      {
+        name: './probabilityMap.wgsl',
+        contents: probabilityMapWGSL,
+        editable: true,
+      },
+      {
+        name: '../../shaders/fullscreenTexturedQuad.wgsl',
+        contents: fullscreenTexturedWGSL,
+        editable: true,
+      },
+    ],
     filename: __filename,
   });
 
