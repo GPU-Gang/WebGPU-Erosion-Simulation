@@ -1,23 +1,21 @@
 import Head from 'next/head';
 import { AppProps } from 'next/app';
-import { useState } from 'react';
 
 import './styles.css';
 import styles from './MainLayout.module.css';
 
-import { pages } from './samples/[slug]';
+// import { pages } from './samples/[slug]';
 
 const title = 'Terrain X';
 
-type PageType = {
-  [key: string]: React.ComponentType & { render: { preload: () => void } };
-};
+// type PageType = {
+//   [key: string]: React.ComponentType & { render: { preload: () => void } };
+// };
 
 const MainLayout: React.FunctionComponent<AppProps> = ({
   Component,
   pageProps,
 }) => {
-
   return (
     <>
       <Head>

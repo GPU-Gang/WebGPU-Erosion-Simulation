@@ -452,22 +452,6 @@ const Terrain: () => JSX.Element = () =>
       'Interactive terrain authoring and erosion simulation on WebGPU',
     gui: true,
     init,
-    sources: [
-      {
-        name: __filename.substring(__dirname.length + 1),
-        contents: __SOURCE__,
-      },
-      {
-        name: './particle.wgsl',
-        contents: particleWGSL,
-        editable: true,
-      },
-      {
-        name: './probabilityMap.wgsl',
-        contents: probabilityMapWGSL,
-        editable: true,
-      },
-    ],
     filename: __filename,
   });
 

@@ -8,8 +8,7 @@ module.exports = {
   ],
   plugins: [
     "@typescript-eslint",
-    "react",
-    "prettier"
+    "react"
   ],
   rules: {
     "react/react-in-jsx-scope": "off",
