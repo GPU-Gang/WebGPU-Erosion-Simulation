@@ -13,6 +13,8 @@ export type SampleInit = (params: {
   stats?: Stats;
 }) => void | Promise<void>;
 
+  let el: HTMLDivElement | null = null;
+
 const SampleLayout: React.FunctionComponent<
   React.PropsWithChildren<{
     name: string;
@@ -49,6 +51,7 @@ const SampleLayout: React.FunctionComponent<
   const [error, setError] = useState<unknown | null>(null);
 
   useEffect(() => {
+
     if (gui && guiParentRef.current) {
       guiParentRef.current.appendChild(gui.domElement);
 
