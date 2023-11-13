@@ -8,7 +8,7 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     env:
-      BASE_PATH: /webgpu-terrain-x
+      BASE_PATH: /WebGPU-Erosion-Simulation
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v2.3.1

@@ -4,7 +4,6 @@
   "description": "Interactive terrain authoring and erosion simulation on WebGPU",
   "license": "BSD-3-Clause",
   "private": false,
-  "homepage": "./",
   "repository": {
     "type": "git",
     "url": "https://github.com/GPU-Gang/WebGPU-Erosion-Simulation"
