@@ -1,5 +1,5 @@
 {
-  "name": "webgpu-terrain-x",
+  "name": "WebGPU-Erosion-Simulation",
   "version": "1.0.0",
   "description": "Interactive terrain authoring and erosion simulation on WebGPU",
   "license": "BSD-3-Clause",
