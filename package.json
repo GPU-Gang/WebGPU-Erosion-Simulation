@@ -1,5 +1,5 @@
 {
-  "name": "webgpu-terrain-x",
+  "name": "WebGPU-Erosion-Simulation",
   "version": "1.0.0",
   "description": "Interactive terrain authoring and erosion simulation on WebGPU",
   "license": "BSD-3-Clause",
@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@types/dom-mediacapture-transform": "^0.1.5",
-    "codemirror": "^5.58.2",
     "dat.gui": "^0.7.6",
     "file-loader": "^6.2.0",
     "next": "^13.0.0",
@@ -31,7 +30,6 @@
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^13.0.0",
-    "@types/codemirror": "0.0.97",
     "@types/dat.gui": "^0.7.6",
     "@types/node": "^18.11.8",
     "@types/react": "^18.0.24",

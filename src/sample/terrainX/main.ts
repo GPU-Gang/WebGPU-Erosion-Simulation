@@ -220,7 +220,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   let numMipLevels = 1;
   let [srcWidth, srcHeight] = [1, 1];
   {
-    const response = await fetch('../assets/img/terrainXLogo.png');
+    const response = await fetch('assets/img/terrainXLogo.png');
     const imageBitmap = await createImageBitmap(await response.blob());
     [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
@@ -538,27 +538,6 @@ const Terrain: () => JSX.Element = () =>
     gui: true,
     stats: true,
     init,
-    sources: [
-      {
-        name: __filename.substring(__dirname.length + 1),
-        contents: __SOURCE__,
-      },
-      {
-        name: './particle.wgsl',
-        contents: particleWGSL,
-        editable: true,
-      },
-      {
-        name: './probabilityMap.wgsl',
-        contents: probabilityMapWGSL,
-        editable: true,
-      },
-      {
-        name: '../../shaders/fullscreenTexturedQuad.wgsl',
-        contents: fullscreenTexturedWGSL,
-        editable: true,
-      },
-    ],
     filename: __filename,
   });
 
