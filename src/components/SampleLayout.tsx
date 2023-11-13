@@ -1,5 +1,4 @@
 import Head from 'next/head';
-import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GUI } from 'dat.gui';
@@ -47,11 +46,8 @@ const SampleLayout: React.FunctionComponent<
     return undefined;
   }, []);
 
-  const router = useRouter();
-  const currentHash = router.asPath.match(/#([a-zA-Z0-9\.\/]+)/);
-
   const [error, setError] = useState<unknown | null>(null);
-  const [activeHash, setActiveHash] = useState<string | null>(null);
+
   useEffect(() => {
     if (gui && guiParentRef.current) {
       guiParentRef.current.appendChild(gui.domElement);
