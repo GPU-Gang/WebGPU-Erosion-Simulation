@@ -220,7 +220,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   let numMipLevels = 1;
   let [srcWidth, srcHeight] = [1, 1];
   {
-    const response = await fetch('../assets/img/terrainXLogo.png');
+    const response = await fetch('assets/img/terrainXLogo.png');
     const imageBitmap = await createImageBitmap(await response.blob());
     [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
