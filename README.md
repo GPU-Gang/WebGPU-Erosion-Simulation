@@ -19,4 +19,3 @@ requires an installation of [Node.js](https://nodejs.org/en/).
   sources: `npm start`. You can navigate to http://localhost:3000 to view the project.
 - For production, compile the project: `npm run build`.
 - To run a production server to serve the built assets, do `npm run serve`.
-
