@@ -1,11 +1,10 @@
 import { mat4, vec3 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 
-import particleWGSL from './particle.wgsl';
-import probabilityMapWGSL from './probabilityMap.wgsl';
+import particleWGSL from './particle.wgsl'; //TODO: to be removed/replaced by our own vert/frag shader for SDF terrain
+import erosionWGSL from './erosion.wgsl';
 import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
 
-const numParticles = 50000;
 const particlePositionOffset = 0;
 const particleColorOffset = 4 * 4;
 const particleInstanceByteSize =
@@ -15,6 +14,8 @@ const particleInstanceByteSize =
   3 * 4 + // velocity
   1 * 4 + // padding
   0;
+
+  let currSourceTexIndex = 0;
 
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const adapter = await navigator.gpu.requestAdapter();
@@ -34,16 +35,12 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     alphaMode: 'premultiplied',
   });
 
-  const particlesBuffer = device.createBuffer({
-    size: numParticles * particleInstanceByteSize,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE,
-  });
-
+  //TODO: From particles sample - Not sure if we need this but leaving in case needed for rendering SDF terrain
   const renderPipeline = device.createRenderPipeline({
     layout: 'auto',
     vertex: {
       module: device.createShaderModule({
-        code: particleWGSL,
+        code: particleWGSL,  //will need to be replaced by our own vert shader
       }),
       entryPoint: 'vs_main',
       buffers: [
@@ -83,7 +80,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     },
     fragment: {
       module: device.createShaderModule({
-        code: particleWGSL,
+        code: particleWGSL, //will need to be replaced by our own fragment shader
       }),
       entryPoint: 'fs_main',
       targets: [
@@ -146,8 +143,9 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     magFilter: 'linear',
     minFilter: 'linear',
   });
-//////////////////////////////////////////////////////////////////////////////
 
+//////////////////////////////////////////////////////////////////////////////
+//TODO: From particles sample - Not sure if we need this but leaving in case needed for rendering SDF terrain
   const depthTexture = device.createTexture({
     size: [canvas.width, canvas.height],
     format: 'depth24plus',
@@ -214,210 +212,84 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   //////////////////////////////////////////////////////////////////////////////
   // Texture
   //////////////////////////////////////////////////////////////////////////////
-  let texture: GPUTexture;
-  let textureWidth = 1;
-  let textureHeight = 1;
-  let numMipLevels = 1;
-  let [srcWidth, srcHeight] = [1, 1];
-  {
-    const response = await fetch('assets/img/terrainXLogo.png');
-    const imageBitmap = await createImageBitmap(await response.blob());
-    [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
+  const response = await fetch('assets/img/terrainXLogo.png');
+  const imageBitmap = await createImageBitmap(await response.blob());
+  const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
-    // Calculate number of mip levels required to generate the probability map
-    while (
-      textureWidth < imageBitmap.width ||
-      textureHeight < imageBitmap.height
-    ) {
-      textureWidth *= 2;
-      textureHeight *= 2;
-      numMipLevels++;
-    }
-    texture = device.createTexture({
+  const textures = [0, 1].map(() => {
+    return device.createTexture({
       size: [srcWidth, srcHeight, 1],
-      mipLevelCount: numMipLevels,
       format: 'rgba8unorm',
       usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.STORAGE_BINDING |
         GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    device.queue.copyExternalImageToTexture(
-      { source: imageBitmap },
-      { texture: texture },
-      [srcWidth, srcHeight]
-    );
-  }
-
-  // ping-pong buffers for later?
-  // const textures = [0, 1].map(() => {
-  //   return device.createTexture({
-  //     size: {
-  //       width: srcWidth,
-  //       height: srcHeight,
-  //     },
-  //     format: 'rgba8unorm',
-  //     usage:
-  //       GPUTextureUsage.COPY_DST |
-  //       GPUTextureUsage.STORAGE_BINDING |
-  //       GPUTextureUsage.TEXTURE_BINDING,
-  //   });
-  // });
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Probability map generation
-  // The 0'th mip level of texture holds the color data and spawn-probability in
-  // the alpha channel. The mip levels 1..N are generated to hold spawn
-  // probabilities up to the top 1x1 mip level.
-  //////////////////////////////////////////////////////////////////////////////
-  {
-    const probabilityMapImportLevelPipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: {
-        module: device.createShaderModule({ code: probabilityMapWGSL }),
-        entryPoint: 'import_level',
-      },
-    });
-    const probabilityMapExportLevelPipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: {
-        module: device.createShaderModule({ code: probabilityMapWGSL }),
-        entryPoint: 'export_level',
-      },
-    });
-
-    const probabilityMapUBOBufferSize =
-      1 * 4 + // stride
-      3 * 4 + // padding
-      0;
-    const probabilityMapUBOBuffer = device.createBuffer({
-      size: probabilityMapUBOBufferSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const buffer_a = device.createBuffer({
-      size: textureWidth * textureHeight * 4,
-      usage: GPUBufferUsage.STORAGE,
-    });
-    const buffer_b = device.createBuffer({
-      size: textureWidth * textureHeight * 4,
-      usage: GPUBufferUsage.STORAGE,
-    });
-    device.queue.writeBuffer(
-      probabilityMapUBOBuffer,
-      0,
-      new Int32Array([textureWidth])
-    );
-    const commandEncoder = device.createCommandEncoder();
-    for (let level = 0; level < numMipLevels; level++) {
-      const levelWidth = textureWidth >> level;
-      const levelHeight = textureHeight >> level;
-      const pipeline =
-        level == 0
-          ? probabilityMapImportLevelPipeline.getBindGroupLayout(0)
-          : probabilityMapExportLevelPipeline.getBindGroupLayout(0);
-      const probabilityMapBindGroup = device.createBindGroup({
-        layout: pipeline,
-        entries: [
-          {
-            // ubo
-            binding: 0,
-            resource: { buffer: probabilityMapUBOBuffer },
-          },
-          {
-            // buf_in
-            binding: 1,
-            resource: { buffer: level & 1 ? buffer_a : buffer_b },
-          },
-          {
-            // buf_out
-            binding: 2,
-            resource: { buffer: level & 1 ? buffer_b : buffer_a },
-          },
-          {
-            // tex_in / tex_out
-            binding: 3,
-            resource: texture.createView({
-              format: 'rgba8unorm',
-              dimension: '2d',
-              baseMipLevel: level,
-              mipLevelCount: 1,
-            }),
-          },
-        ],
-      });
-      if (level == 0) {
-        const passEncoder = commandEncoder.beginComputePass();
-        passEncoder.setPipeline(probabilityMapImportLevelPipeline);
-        passEncoder.setBindGroup(0, probabilityMapBindGroup);
-        passEncoder.dispatchWorkgroups(Math.ceil(levelWidth / 64), levelHeight);
-        passEncoder.end();
-      } else {
-        const passEncoder = commandEncoder.beginComputePass();
-        passEncoder.setPipeline(probabilityMapExportLevelPipeline);
-        passEncoder.setBindGroup(0, probabilityMapBindGroup);
-        passEncoder.dispatchWorkgroups(Math.ceil(levelWidth / 64), levelHeight);
-        passEncoder.end();
-      }
-    }
-    device.queue.submit([commandEncoder.finish()]);
-  }
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Simulation compute pipeline
-  //////////////////////////////////////////////////////////////////////////////
-  const simulationParams = {
-    simulate: true,
-    deltaTime: 0.04,
-    render2D: false,
-  };
-
-  const simulationUBOBufferSize =
-    1 * 4 + // deltaTime
-    3 * 4 + // padding
-    4 * 4 + // seed
-    0;
-  const simulationUBOBuffer = device.createBuffer({
-    size: simulationUBOBufferSize,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  Object.keys(simulationParams).forEach((k) => {
-    gui.add(simulationParams, k);
-  });
+  
+  device.queue.copyExternalImageToTexture(
+    { source: imageBitmap },
+    { texture: textures[currSourceTexIndex] },
+    [srcWidth, srcHeight]
+  );
 
-  const computePipeline = device.createComputePipeline({
+  //////////////////////////////////////////////////////////////////////////////
+  // Erosion Simulation Compute Pipeline
+  //////////////////////////////////////////////////////////////////////////////
+  
+  const erosionComputePipeline = device.createComputePipeline({
     layout: 'auto',
     compute: {
       module: device.createShaderModule({
-        code: particleWGSL,
+        code: erosionWGSL,
       }),
-      entryPoint: 'simulate',
+      entryPoint: 'main',
     },
   });
-  const computeBindGroup = device.createBindGroup({
-    layout: computePipeline.getBindGroupLayout(0),
+  
+  //TODO: our uniforms would *probably* go here but not sure
+  // const computeConstants = device.createBindGroup({
+  //   layout: erosionComputePipeline.getBindGroupLayout(0),
+  //   entries: [
+  //     {
+  //       binding: 0,
+  //       resource: sampler,
+  //     },
+  //   ],
+  // });
+
+  const computeBindGroup0 = device.createBindGroup({
+    layout: erosionComputePipeline.getBindGroupLayout(0),
     entries: [
       {
-        binding: 0,
-        resource: {
-          buffer: simulationUBOBuffer,
-        },
-      },
-      {
         binding: 1,
-        resource: {
-          buffer: particlesBuffer,
-          offset: 0,
-          size: numParticles * particleInstanceByteSize,
-        },
+        resource: textures[0].createView(),
       },
       {
         binding: 2,
-        resource: texture.createView(),
+        resource: textures[1].createView(),
       },
     ],
   });
+
+  const computeBindGroup1 = device.createBindGroup({
+    layout: erosionComputePipeline.getBindGroupLayout(0),
+    entries: [
+      {
+        binding: 1,
+        resource: textures[1].createView(),
+      },
+      {
+        binding: 2,
+        resource: textures[0].createView(),
+      },
+    ],
+  });
+
+  let computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
+
 
   const show2DRenderBindGroup = device.createBindGroup({
     layout: fullscreenTexturePipeline.getBindGroupLayout(0),
@@ -428,7 +300,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       },
       {
         binding: 1,
-        resource: texture.createView(),
+        resource: textures[currSourceTexIndex].createView(),
       },
     ],
   });
@@ -442,26 +314,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     // Sample is no longer the active page.
     if (!pageState.active) return;
 
-    device.queue.writeBuffer(
-      simulationUBOBuffer,
-      0,
-      new Float32Array([
-        simulationParams.simulate ? simulationParams.deltaTime : 0.0,
-        0.0,
-        0.0,
-        0.0, // padding
-        Math.random() * 100,
-        Math.random() * 100, // seed.xy
-        1 + Math.random(),
-        1 + Math.random(), // seed.zw
-      ])
-    );
 
+    //TODO: From particles sample - Not sure if we need this but leaving in case needed for the camera to work
     mat4.identity(view);
     mat4.translate(view, vec3.fromValues(0, 0, -3), view);
     mat4.rotateX(view, Math.PI * -0.2, view);
     mat4.multiply(projection, view, mvp);
 
+    //TODO: From particles sample - Not sure if we need this but leaving in case needed for the camera to work
     // prettier-ignore
     device.queue.writeBuffer(
       uniformBuffer,
@@ -482,45 +342,37 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         0, // padding
       ])
     );
-    const swapChainTexture = context.getCurrentTexture();
-    // prettier-ignore
-    renderPassDescriptor.colorAttachments[0].view = swapChainTexture.createView();
 
     const commandEncoder = device.createCommandEncoder();
+    //compute pass goes in the following stub
     {
       const computePass = commandEncoder.beginComputePass();
-      computePass.setPipeline(computePipeline);
-      computePass.setBindGroup(0, computeBindGroup);
-      computePass.dispatchWorkgroups(Math.ceil(numParticles / 64));
+      computePass.setPipeline(erosionComputePipeline);
+      //computePass.setBindGroup(0, computeConstants);
+      computePass.setBindGroup(0, computeBindGroupArr[currSourceTexIndex]);
+      computePass.dispatchWorkgroups(
+        Math.ceil(srcWidth),
+        Math.ceil(srcHeight)
+      );
       computePass.end();
+      currSourceTexIndex = (currSourceTexIndex + 1) % 2;
     }
+    //full screen quad render pass goes in the following stub
     {
-      if (simulationParams.render2D) {
-        const passEncoder = commandEncoder.beginRenderPass({
-          colorAttachments: [
-            {
-              view: renderPassDescriptor.colorAttachments[0].view,
-              clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-              loadOp: 'clear',
-              storeOp: 'store',
-            },
-          ],
-        });
-        passEncoder.setPipeline(fullscreenTexturePipeline);
-        passEncoder.setBindGroup(0, show2DRenderBindGroup);
-        passEncoder.draw(6);
-        passEncoder.end();
-      }
-      else {
-        const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-
-        passEncoder.setPipeline(renderPipeline);
-        passEncoder.setBindGroup(0, uniformBindGroup);
-        passEncoder.setVertexBuffer(0, particlesBuffer);
-        passEncoder.setVertexBuffer(1, quadVertexBuffer);
-        passEncoder.draw(6, numParticles, 0, 0);
-        passEncoder.end();
-      }
+      const passEncoder = commandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: context.getCurrentTexture().createView(),
+          clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
+      });
+      passEncoder.setPipeline(fullscreenTexturePipeline);
+      passEncoder.setBindGroup(0, show2DRenderBindGroup);
+      passEncoder.draw(6);
+      passEncoder.end();
     }
 
     device.queue.submit([commandEncoder.finish()]);
