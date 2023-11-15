@@ -1,5 +1,10 @@
-@group(0) @binding(0) var mySampler : sampler;
-@group(0) @binding(1) var myTexture : texture_2d<f32>;
+struct Uniforms {
+  modelViewProjectionMatrix : mat4x4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+@group(0) @binding(1) var mySampler : sampler;
+@group(0) @binding(2) var myTexture : texture_2d<f32>;
 
 struct VertexOutput {
   @builtin(position) Position : vec4<f32>,
@@ -12,7 +17,7 @@ fn vert_main(
   @location(1) vs_nor: vec4<f32>,
   @location(2) vs_uv: vec2<f32>) -> VertexOutput {
   var output : VertexOutput;
-  output.Position = vs_pos;
+  output.Position = uniforms.modelViewProjectionMatrix * vs_pos;
   output.fs_UV = vs_uv;
   return output;
 }

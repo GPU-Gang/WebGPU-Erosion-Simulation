@@ -1,5 +1,3 @@
-import { vec2 } from "wgpu-matrix";
-
 abstract class Drawable {
   count: number = 0;
 

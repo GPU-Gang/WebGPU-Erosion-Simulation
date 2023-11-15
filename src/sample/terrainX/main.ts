@@ -1,4 +1,4 @@
-import { mat4, vec3, vec4 } from 'wgpu-matrix';
+import { Mat4, mat4, vec3, vec4 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 import Camera from '../camera';
 import particleWGSL from './particle.wgsl';
@@ -17,12 +17,42 @@ const particleInstanceByteSize =
   1 * 4 + // padding
   0;
 
-let quad: Quad;
+// Geometries
+let inputHeightmapDisplayQuad: Quad;
+let terrainQuad: Quad;
 
 function setupGeometry(device: GPUDevice)
 {
-  quad = new Quad(vec4.create(0,0,0,0));
-  quad.create(device);
+  inputHeightmapDisplayQuad = new Quad(vec4.create(1,1,0,0), vec3.create(0.4,0.4,1));
+  inputHeightmapDisplayQuad.create(device);
+
+  terrainQuad = new Quad(vec4.create(0,0,0,0));
+  terrainQuad.create(device);
+}
+
+function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
+                                mvp: Mat4, viewMatrix: Mat4)
+{
+      // prettier-ignore
+      device.queue.writeBuffer(
+        uniformBuffer,
+        bufferOffset,
+        new Float32Array([
+          // modelViewProjectionMatrix
+          mvp[0], mvp[1], mvp[2], mvp[3],
+          mvp[4], mvp[5], mvp[6], mvp[7],
+          mvp[8], mvp[9], mvp[10], mvp[11],
+          mvp[12], mvp[13], mvp[14], mvp[15],
+  
+          viewMatrix[0], viewMatrix[4], viewMatrix[8], // right
+  
+          0, // padding
+  
+          viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
+  
+          0, // padding
+        ])
+      );
 }
 
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
@@ -195,7 +225,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
 
-  const uniformBufferSize =
+  const offset = 256; // padding must be 256-byte aligned??
+  const uniformBufferSize = offset +
     4 * 4 * 4 + // modelViewProjectionMatrix : mat4x4<f32>
     3 * 4 + // right : vec3<f32>
     4 + // padding
@@ -445,19 +476,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     ],
   });
 
-  const show2DRenderBindGroup = device.createBindGroup({
-    layout: fullscreenTexturePipeline.getBindGroupLayout(0),
-    entries: [
-      {
-        binding: 0,
-        resource: sampler,
-      },
-      {
-        binding: 1,
-        resource: texture.createView(),
-      },
-    ],
-  });
+  terrainQuad.createBindGroup(fullscreenTexturePipeline, uniformBuffer, 0, sampler, texture);
+  inputHeightmapDisplayQuad.createBindGroup(fullscreenTexturePipeline, uniformBuffer, offset, sampler, texture);
 
   const camera = new Camera(vec3.create(0, 0, -3), vec3.create(0, 0, 0));
   camera.setAspectRatio(canvas.width / canvas.height);
@@ -491,25 +511,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     camera.update();
 
     // prettier-ignore
-    device.queue.writeBuffer(
-      uniformBuffer,
-      0,
-      new Float32Array([
-        // modelViewProjectionMatrix
-        mvp[0], mvp[1], mvp[2], mvp[3],
-        mvp[4], mvp[5], mvp[6], mvp[7],
-        mvp[8], mvp[9], mvp[10], mvp[11],
-        mvp[12], mvp[13], mvp[14], mvp[15],
-
-        camera.viewMatrix[0], camera.viewMatrix[4], camera.viewMatrix[8], // right
-
-        0, // padding
-
-        camera.viewMatrix[1], camera.viewMatrix[5], camera.viewMatrix[9], // up
-
-        0, // padding
-      ])
-    );
+    writeMVPUniformBuffer(device, uniformBuffer, 0, mvp, camera.viewMatrix);
     const swapChainTexture = context.getCurrentTexture();
     // prettier-ignore
     renderPassDescriptor.colorAttachments[0].view = swapChainTexture.createView();
@@ -535,12 +537,25 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
           ],
         });
         passEncoder.setPipeline(fullscreenTexturePipeline);
-        passEncoder.setBindGroup(0, show2DRenderBindGroup);
-        passEncoder.setIndexBuffer(quad.indexBuffer, "uint32");
-        passEncoder.setVertexBuffer(0, quad.posBuffer);
-        passEncoder.setVertexBuffer(1, quad.normalBuffer);
-        passEncoder.setVertexBuffer(2, quad.uvBuffer);
-        passEncoder.drawIndexed(quad.count);
+
+        // Draw main quad (terrain)
+        writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), mat4.identity());
+        passEncoder.setBindGroup(0, terrainQuad.bindGroup);
+        passEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
+        passEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
+        passEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
+        passEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
+        passEncoder.drawIndexed(terrainQuad.count);
+
+        // Draw input texture as UI
+        writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity());
+        passEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
+        passEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
+        passEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
+        passEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
+        passEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
+        passEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
+
         passEncoder.end();
       }
       else {
