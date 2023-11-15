@@ -26,7 +26,7 @@ function setupGeometry(device: GPUDevice)
   inputHeightmapDisplayQuad = new Quad(vec4.create(1,1,0,0), vec3.create(0.4,0.4,1));
   inputHeightmapDisplayQuad.create(device);
 
-  terrainQuad = new Quad(vec4.create(0,0,0,0));
+  terrainQuad = new Quad(vec4.create(0,0,0,0), vec3.create(1,1,1), vec3.create(0,180,0));
   terrainQuad.create(device);
 }
 
@@ -483,7 +483,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   terrainQuad.createBindGroup(fullscreenTexturePipeline, uniformBuffer, 0, sampler, texture);
   inputHeightmapDisplayQuad.createBindGroup(fullscreenTexturePipeline, uniformBuffer, offset, sampler, texture);
 
-  const camera = new Camera(vec3.create(0, 0, -3), vec3.create(0, 0, 0));
+  const camera = new Camera(vec3.create(0, 0, -3), terrainQuad.center);
   camera.setAspectRatio(canvas.width / canvas.height);
   camera.updateProjectionMatrix();
 

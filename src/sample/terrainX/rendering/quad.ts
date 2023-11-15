@@ -1,6 +1,10 @@
 import { mat4, Vec3, vec3, vec4, Vec4 } from 'wgpu-matrix';
 import Drawable from './drawable';
-import { off } from 'process';
+
+function degToRad(deg: number)
+{
+    return deg * 0.0174533;
+}
 
 class Quad extends Drawable {
   center: Vec4;
@@ -18,6 +22,9 @@ class Quad extends Drawable {
     this.center = vec4.fromValues(center[0], center[1], center[2], 1);
     this.scale = scale;
     this.rotation = rotation;
+    this.rotation[0] = degToRad(this.rotation[0]);
+    this.rotation[1] = degToRad(this.rotation[1]);
+    this.rotation[2] = degToRad(this.rotation[2]);
    }
 
   create(device: GPUDevice) {
