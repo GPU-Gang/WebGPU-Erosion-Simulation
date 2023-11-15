@@ -172,7 +172,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   //////////////////////////////////////////////////////////////////////////////
 
   // heightmap
-  var response = await fetch('assets/heightfields/hfTest1.png');
+  var response = await fetch('assets/img/hfTest2.png');
   var imageBitmap = await createImageBitmap(await response.blob());
   const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
@@ -194,8 +194,31 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     [srcWidth, srcHeight]
   );
 
+    // heightmap
+    var response = await fetch('assets/img/stream.png');
+    var imageBitmap2 = await createImageBitmap(await response.blob());
+    const [srcWidth2, srcHeight2] = [imageBitmap2.width, imageBitmap2.height];
+  
+    // ping-pong buffers
+    const textures2 = [0, 1].map(() => {
+      return device.createTexture({
+        size: [srcWidth2, srcHeight2, 1],
+        format: 'rgba8unorm',
+        usage:
+          GPUTextureUsage.COPY_DST |
+          GPUTextureUsage.STORAGE_BINDING |
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+    });
+    device.queue.copyExternalImageToTexture(
+      { source: imageBitmap2 },
+      { texture: textures2[currSourceTexIndex] },
+      [srcWidth2, srcHeight2]
+    );
+
     // uplift texture
-    response = await fetch('assets/uplifts/lambda.png');
+    response = await fetch('assets/uplifts/alpes_noise.png');
     imageBitmap = await createImageBitmap(await response.blob());
 
     const upliftTexture = device.createTexture({
@@ -267,6 +290,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         binding: 3,
         resource: upliftTexture.createView(),
       },
+      {
+        binding: 4,
+        resource: textures2[0].createView(),
+      },
+      {
+        binding: 5,
+        resource: textures2[1].createView(),
+      }
     ],
   });
 
@@ -286,6 +317,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         binding: 3,
         resource: upliftTexture.createView(),
       },
+      {
+        binding: 4,
+        resource: textures2[1].createView(),
+      },
+      {
+        binding: 5,
+        resource: textures2[0].createView(),
+      }
     ],
   });
 

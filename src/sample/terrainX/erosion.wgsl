@@ -15,6 +15,9 @@ struct SimulationParams {
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(3) var inUplift : texture_2d<f32>;
+@group(1) @binding(4) var inStream : texture_2d<f32>;
+@group(1) @binding(5) var outStream : texture_storage_2d<rgba8unorm, write>;
+
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -22,13 +25,13 @@ struct SimulationParams {
 // TODO 2: Stream power + Hillslope (Laplacian) + Debris slope
 const erosionMode : i32 = 0;
 
-const uplift : f32 = 0.01;
-const k : f32 = 0.0005;
+const uplift : f32 = 0.005;
+const k : f32 = 0.05;
 const k_d : f32 = 10.0;
-const k_h : f32 = 2.0;
-const p_sa : f32 = 0.8;
-const p_sl : f32 = 2.0;
-const dt : f32 = 0.6;
+const k_h : f32 = 3.0;
+const p_sa : f32 = 1.0;
+const p_sl : f32 = 1.0;
+const dt : f32 = 7.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -53,6 +56,12 @@ fn UpliftAt(p : vec2i) -> f32 {
     return color.r; // also greyscale?
 }
 
+
+fn StreamAt(p : vec2i) -> f32 {
+    let color = textureLoad(inStream, vec2u(p), 0);
+    return color.r; // also greyscale?
+}
+
 fn ArrayPoint(p : vec2i) -> vec2f {
   let lowerVert = vec2f(simParams.lowerVertX, simParams.lowerVertY);
   let cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
@@ -72,6 +81,15 @@ fn Slope(p : vec2i, q : vec2i) -> f32 {
   return (Height(q) - Height(p)) / d;
 }
 
+fn Stream(p : vec2i) -> f32 {
+  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) 
+  {return 0.0;
+  }
+  
+  // var index_p = ToIndex1D(p.x, p.y);
+  return StreamAt(p);//inStreamArea[index_p];
+}
+
 fn GetFlowSteepest(p : vec2i) -> vec2i {
   var d = vec2i();
   var maxSlope = 0.0;
@@ -85,6 +103,18 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
   return d;
 }
 
+fn WaterSteepest(p : vec2i) -> f32 {
+  var water = 0.0;
+  for (var i = 0; i < 8; i++) {
+      var q = p + neighbors[i];
+      var fd = GetFlowSteepest(q);
+      if ((q + fd).x == p.x && (q + fd).y == p.y) {
+          water += Stream(q);
+      }
+  }
+  return water;
+}
+
 fn Read(p : vec2i) -> vec4f {
   if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) {
     return vec4f();
@@ -92,14 +122,14 @@ fn Read(p : vec2i) -> vec4f {
 
   var ret = vec4f();
   ret.x = Height(p);        // Bedrock elevation
-  //ret.y = inStreamArea[id];      // Stream area
+  ret.y = StreamAt(p);      // Stream area
   ret.z = UpliftAt(p);      // Uplift factor
   return ret;
 }
 
 fn Write(p : vec2i, data : vec4f) {
   textureStore(outElevation, p, vec4f(data.x));
-  //textureStore(outStream, p, vec4f(data.y));
+  textureStore(outStream, p, vec4f(data.y));
 }
 
 
@@ -131,7 +161,7 @@ fn main(
   }
 
   // Flows accumulation at p
-  var waterIncr = 0.0;//WaterSteepest(p);
+  var waterIncr = WaterSteepest(p);
 
   data.y = 1.0 * length(cellDiag);
   data.y += waterIncr;
