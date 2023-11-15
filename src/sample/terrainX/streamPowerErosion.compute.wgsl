@@ -150,9 +150,9 @@ fn WaterSteepest(p : vec2i) -> f32 {
 
 
 @compute @workgroup_size(8, 8, 1)
-fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3<u32>) {
-  let idX = i32(global_invocation_id.x);
-  let idY = i32(global_invocation_id.y);
+fn simulate(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
+  let idX = i32(GlobalInvocationID.x);
+  let idY = i32(GlobalInvocationID.y);
   if (idX < 0 || idY < 0) return;
   if (idX >= simParams.nx || idY >= simParams.ny) return;
 
