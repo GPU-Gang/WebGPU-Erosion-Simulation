@@ -23,7 +23,7 @@ let terrainQuad: Quad;
 
 function setupGeometry(device: GPUDevice)
 {
-  inputHeightmapDisplayQuad = new Quad(vec4.create(1,1,0,0), vec3.create(0.4,0.4,1));
+  inputHeightmapDisplayQuad = new Quad(vec4.create(2.5,2.5,0,0), vec3.create(0.3,0.3,1));
   inputHeightmapDisplayQuad.create(device);
 
   terrainQuad = new Quad(vec4.create(0,0,0,0), vec3.create(1,1,1), vec3.create(0,180,0));
@@ -533,7 +533,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
           colorAttachments: [
             {
               view: renderPassDescriptor.colorAttachments[0].view,
-              clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+              clearValue: { r: 0.0, g: 0.0, b: 0.2, a: 1.0 },
               loadOp: 'clear',
               storeOp: 'store',
             },
