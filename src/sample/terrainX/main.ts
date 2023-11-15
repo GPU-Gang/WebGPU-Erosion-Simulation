@@ -179,6 +179,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     },
     primitive: {
       topology: 'triangle-list',
+      cullMode: 'back'
     },
   });
 

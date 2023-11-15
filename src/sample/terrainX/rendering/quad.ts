@@ -20,14 +20,14 @@ class Quad extends Drawable {
                                     0, 0, 1, 0]);
                                    
     this.positions = new Float32Array([-1, -1, 0, 1,
-      -1, 1, 0, 1,
+      1, -1, 0, 1,
       1, 1, 0, 1,
-      1, -1, 0, 1]);
+      -1, 1, 0, 1]);
 
-    this.uvs = new Float32Array([0, 0,
-        1,0,
+    this.uvs = new Float32Array([0,1,
         1,1,
-        0,1])
+        1,0,
+        0,0])
 
     this.count = this.indices.length;
 
