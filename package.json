@@ -18,12 +18,12 @@
   },
   "dependencies": {
     "@types/dom-mediacapture-transform": "^0.1.5",
+    "3d-view-controls": "^2.2.2",
     "dat.gui": "^0.7.6",
     "file-loader": "^6.2.0",
     "next": "^13.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "stanford-dragon": "1.1.1",
     "stats-js": "^1.0.1",
     "teapot": "1.0.0",
     "wgpu-matrix": "^2.5.0"

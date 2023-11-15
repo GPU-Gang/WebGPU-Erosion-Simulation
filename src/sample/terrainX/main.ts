@@ -1,9 +1,10 @@
-import { mat4, vec3 } from 'wgpu-matrix';
+import { mat4, vec3, vec4 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
-
+import Camera from '../camera';
 import particleWGSL from './particle.wgsl';
 import probabilityMapWGSL from './probabilityMap.wgsl';
 import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
+import Quad from './rendering/quad';
 
 const numParticles = 50000;
 const particlePositionOffset = 0;
@@ -15,6 +16,14 @@ const particleInstanceByteSize =
   3 * 4 + // velocity
   1 * 4 + // padding
   0;
+
+let quad: Quad;
+
+function setupGeometry(device: GPUDevice)
+{
+  quad = new Quad(vec4.create(0,0,0,0));
+  quad.create(device);
+}
 
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const adapter = await navigator.gpu.requestAdapter();
@@ -33,6 +42,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     format: presentationFormat,
     alphaMode: 'premultiplied',
   });
+
+  setupGeometry(device);
 
   const particlesBuffer = device.createBuffer({
     size: numParticles * particleInstanceByteSize,
@@ -125,6 +136,35 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         code: fullscreenTexturedWGSL,
       }),
       entryPoint: 'vert_main',
+      buffers:[
+        // positions buffer
+        {
+          arrayStride: 4*4,
+          attributes: [{
+            shaderLocation: 0,
+            format: "float32x4",
+            offset: 0
+          }]
+        },
+        // normals buffer
+        {
+          arrayStride: 4*4,
+          attributes: [{
+            shaderLocation: 1,
+            format: "float32x4",
+            offset: 0
+          }]
+        },
+        // uvs buffer
+        {
+          arrayStride: 2*4,
+          attributes: [{
+            shaderLocation: 2,
+            format: "float32x2",
+            offset: 0
+          }]
+        }
+      ]
     },
     fragment: {
       module: device.createShaderModule({
@@ -195,21 +235,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       depthStoreOp: 'store',
     },
   };
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Quad vertex buffer
-  //////////////////////////////////////////////////////////////////////////////
-  const quadVertexBuffer = device.createBuffer({
-    size: 6 * 2 * 4, // 6x vec2<f32>
-    usage: GPUBufferUsage.VERTEX,
-    mappedAtCreation: true,
-  });
-  // prettier-ignore
-  const vertexData = [
-    -1.0, -1.0, +1.0, -1.0, -1.0, +1.0, -1.0, +1.0, +1.0, -1.0, +1.0, +1.0,
-  ];
-  new Float32Array(quadVertexBuffer.getMappedRange()).set(vertexData);
-  quadVertexBuffer.unmap();
 
   //////////////////////////////////////////////////////////////////////////////
   // Texture
@@ -433,9 +458,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     ],
   });
 
-  const aspect = canvas.width / canvas.height;
-  const projection = mat4.perspective((2 * Math.PI) / 5, aspect, 1, 100.0);
-  const view = mat4.create();
+  const camera = new Camera(vec3.create(0, 0, -3), vec3.create(0, 0, 0));
+  camera.setAspectRatio(canvas.width / canvas.height);
+  camera.updateProjectionMatrix();
+
   const mvp = mat4.create();
 
   function frame() {
@@ -457,10 +483,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       ])
     );
 
-    mat4.identity(view);
-    mat4.translate(view, vec3.fromValues(0, 0, -3), view);
-    mat4.rotateX(view, Math.PI * -0.2, view);
-    mat4.multiply(projection, view, mvp);
+    mat4.identity(camera.viewMatrix);
+    mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
+    mat4.rotateX(camera.viewMatrix, Math.PI * -0.2, camera.viewMatrix);
+    mat4.multiply(camera.projectionMatrix, camera.viewMatrix, mvp);
+    camera.update();
 
     // prettier-ignore
     device.queue.writeBuffer(
@@ -473,11 +500,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         mvp[8], mvp[9], mvp[10], mvp[11],
         mvp[12], mvp[13], mvp[14], mvp[15],
 
-        view[0], view[4], view[8], // right
+        camera.viewMatrix[0], camera.viewMatrix[4], camera.viewMatrix[8], // right
 
         0, // padding
 
-        view[1], view[5], view[9], // up
+        camera.viewMatrix[1], camera.viewMatrix[5], camera.viewMatrix[9], // up
 
         0, // padding
       ])
@@ -508,7 +535,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         });
         passEncoder.setPipeline(fullscreenTexturePipeline);
         passEncoder.setBindGroup(0, show2DRenderBindGroup);
-        passEncoder.draw(6);
+        passEncoder.setIndexBuffer(quad.indexBuffer, "uint32");
+        passEncoder.setVertexBuffer(0, quad.posBuffer);
+        passEncoder.setVertexBuffer(1, quad.normalBuffer);
+        passEncoder.setVertexBuffer(2, quad.uvBuffer);
+        passEncoder.drawIndexed(quad.count);
         passEncoder.end();
       }
       else {
@@ -517,8 +548,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         passEncoder.setPipeline(renderPipeline);
         passEncoder.setBindGroup(0, uniformBindGroup);
         passEncoder.setVertexBuffer(0, particlesBuffer);
-        passEncoder.setVertexBuffer(1, quadVertexBuffer);
-        passEncoder.draw(6, numParticles, 0, 0);
+        // passEncoder.setVertexBuffer(1, quadVertexBuffer);
+        // passEncoder.draw(6, numParticles, 0, 0);
         passEncoder.end();
       }
     }
