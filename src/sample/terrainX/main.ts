@@ -31,28 +31,32 @@ function setupGeometry(device: GPUDevice)
 }
 
 function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
-                                mvp: Mat4, viewMatrix: Mat4)
+                                modelMatrix: Mat4, viewMatrix: Mat4, projMatrix: Mat4)
 {
-      // prettier-ignore
-      device.queue.writeBuffer(
-        uniformBuffer,
-        bufferOffset,
-        new Float32Array([
-          // modelViewProjectionMatrix
-          mvp[0], mvp[1], mvp[2], mvp[3],
-          mvp[4], mvp[5], mvp[6], mvp[7],
-          mvp[8], mvp[9], mvp[10], mvp[11],
-          mvp[12], mvp[13], mvp[14], mvp[15],
-  
-          viewMatrix[0], viewMatrix[4], viewMatrix[8], // right
-  
-          0, // padding
-  
-          viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
-  
-          0, // padding
-        ])
-      );
+  const mvp = mat4.identity();
+  mat4.multiply(viewMatrix, modelMatrix, mvp);
+  mat4.multiply(projMatrix, mvp, mvp);
+
+  // prettier-ignore
+  device.queue.writeBuffer(
+    uniformBuffer,
+    bufferOffset,
+    new Float32Array([
+      // modelViewProjectionMatrix
+      mvp[0], mvp[1], mvp[2], mvp[3],
+      mvp[4], mvp[5], mvp[6], mvp[7],
+      mvp[8], mvp[9], mvp[10], mvp[11],
+      mvp[12], mvp[13], mvp[14], mvp[15],
+
+      viewMatrix[0], viewMatrix[4], viewMatrix[8], // right
+
+      0, // padding
+
+      viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
+
+      0, // padding
+    ])
+  );
 }
 
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
@@ -507,11 +511,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     mat4.identity(camera.viewMatrix);
     mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
     mat4.rotateX(camera.viewMatrix, Math.PI * -0.2, camera.viewMatrix);
-    mat4.multiply(camera.projectionMatrix, camera.viewMatrix, mvp);
     camera.update();
 
     // prettier-ignore
-    writeMVPUniformBuffer(device, uniformBuffer, 0, mvp, camera.viewMatrix);
+    writeMVPUniformBuffer(device, uniformBuffer, 0, mat4.identity(), camera.viewMatrix, camera.projectionMatrix);
     const swapChainTexture = context.getCurrentTexture();
     // prettier-ignore
     renderPassDescriptor.colorAttachments[0].view = swapChainTexture.createView();
@@ -539,7 +542,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         passEncoder.setPipeline(fullscreenTexturePipeline);
 
         // Draw main quad (terrain)
-        writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), mat4.identity());
+        writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera.viewMatrix, camera.projectionMatrix);
         passEncoder.setBindGroup(0, terrainQuad.bindGroup);
         passEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
         passEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
@@ -548,7 +551,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         passEncoder.drawIndexed(terrainQuad.count);
 
         // Draw input texture as UI
-        writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity());
+        writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity(), mat4.identity());
         passEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
         passEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
         passEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
