@@ -288,7 +288,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     ],
   });
 
-  let computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
+  const computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
 
 
   const show2DRenderBindGroup = device.createBindGroup({
