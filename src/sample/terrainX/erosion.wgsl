@@ -15,6 +15,8 @@ struct SimulationParams {
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(3) var inUplift : texture_2d<f32>;
+@group(1) @binding(4) var<storage, read_write> inStream : array<f32>;
+@group(1) @binding(5) var<storage, read_write> outStream : array<f32>;
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -28,7 +30,7 @@ const k_d : f32 = 10.0;
 const k_h : f32 = 2.0;
 const p_sa : f32 = 0.8;
 const p_sl : f32 = 2.0;
-const dt : f32 = 0.6;
+const dt : f32 = 1.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -41,7 +43,7 @@ const neighbors : array<vec2i, 8> = array<vec2i, 8>(
 // ----------- Utilities -----------
 fn ToIndex1D(i : i32, j : i32) -> i32 { return i + simParams.nx * j; }
 
-fn ToIndex1DFromVec(p : vec2i) -> i32 { return p.x + simParams.nx * p.y; }
+fn ToIndex1DFromCoord(p : vec2i) -> i32 { return p.x + simParams.nx * p.y; }
 
 fn Height(p : vec2i) -> f32 {
     let color = textureLoad(inElevation, vec2u(p), 0);
@@ -78,11 +80,30 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
   for (var i = 0; i < 8; i++) {
       var ss = Slope(p + neighbors[i], p);
       if (ss > maxSlope) {
-          maxSlope = ss;
-          d = neighbors[i];
+        maxSlope = ss;
+        d = neighbors[i];
       }
   }
   return d;
+}
+
+fn Stream(p : vec2i) -> f32 {
+  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
+  
+  var index_p = ToIndex1D(p.x, p.y);
+  return inStream[index_p];
+}
+
+fn WaterSteepest(p : vec2i) -> f32 {
+  var water = 0.0;
+  for (var i = 0; i < 8; i++) {
+      var q = p + neighbors[i];
+      var fd = GetFlowSteepest(q);
+      if ((q + fd).x == p.x && (q + fd).y == p.y) {
+        water += Stream(q);
+      }
+  }
+  return water;
 }
 
 fn Read(p : vec2i) -> vec4f {
@@ -92,14 +113,14 @@ fn Read(p : vec2i) -> vec4f {
 
   var ret = vec4f();
   ret.x = Height(p);        // Bedrock elevation
-  //ret.y = inStreamArea[id];      // Stream area
+  ret.y = inStream[ToIndex1DFromCoord(p)];              // Stream area
   ret.z = UpliftAt(p);      // Uplift factor
   return ret;
 }
 
 fn Write(p : vec2i, data : vec4f) {
   textureStore(outElevation, p, vec4f(data.x));
-  //textureStore(outStream, p, vec4f(data.y));
+  outStream[ToIndex1DFromCoord(p)] = data.y;
 }
 
 
@@ -114,7 +135,7 @@ fn main(
   if (idX < 0 || idY < 0) { return; }
   if (idX >= simParams.nx || idY >= simParams.ny) { return; }
 
-  //var id : i32 = ToIndex1D(idX, idY);
+  var id : i32 = ToIndex1D(idX, idY);
   var p : vec2i = vec2i(idX, idY);
   var data : vec4f = Read(p);
   var cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
@@ -123,15 +144,13 @@ fn main(
   if (p.x == 0 || p.x == simParams.nx - 1 ||
       p.y == 0 || p.y == simParams.ny - 1) {
     data.x = 0.0;
-    
     data.y = 1.0 * length(cellDiag);
-    
     Write(p, data);
     return;
   }
 
   // Flows accumulation at p
-  var waterIncr = 0.0;//WaterSteepest(p);
+  var waterIncr = WaterSteepest(p);
 
   data.y = 1.0 * length(cellDiag);
   data.y += waterIncr;
@@ -159,27 +178,4 @@ fn main(
 
   data.x = newHeight;
   Write(p, data);
-
-
-/*let globalPosition : vec2<u32> = vec2<u32>(u32(GlobalInvocationID.x), u32(GlobalInvocationID.y));
-
-// Get the size of the input texture
-let texSize : vec2<u32> = textureDimensions(inElevation);
-
-// Check if the current position is within the bounds of the texture
-if all(globalPosition < texSize) {
-  // Sample the input texture at the current position
-  //GPT:
-  //let color : vec4<f32> = textureSample(inputTexture, inputSampler, globalPosition);
-  
-  //From: https://www.reddit.com/r/wgpu/comments/x5z4tb/writing_to_a_texture_from_a_compute_shader/
-  var color = textureLoad(inElevation, globalPosition, 0);
-
-  // Write the sampled color to the output texture at the same position
-  //GPT:
-  //textureWrite(color, outputTexture, globalPosition);
-  
-  //From imageBlur sample and also the reddit link above
-  textureStore(outElevation, globalPosition, color);
-  }*/
 }

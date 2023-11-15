@@ -176,7 +176,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   var imageBitmap = await createImageBitmap(await response.blob());
   const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
-  // ping-pong buffers
+  // ping-pong buffers for 2d render
   const textures = [0, 1].map(() => {
     return device.createTexture({
       size: [srcWidth, srcHeight, 1],
@@ -194,23 +194,24 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     [srcWidth, srcHeight]
   );
 
-    // uplift texture
-    response = await fetch('assets/uplifts/lambda.png');
-    imageBitmap = await createImageBitmap(await response.blob());
+  // uplift texture
+  response = await fetch('assets/uplifts/lambda.png');
+  imageBitmap = await createImageBitmap(await response.blob());
 
-    const upliftTexture = device.createTexture({
-      size: [srcWidth, srcHeight, 1],
-      format: 'r8unorm',
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    device.queue.copyExternalImageToTexture(
-      { source: imageBitmap },
-      { texture: upliftTexture },
-      [imageBitmap.width, imageBitmap.height]
-    );
+  const upliftTexture = device.createTexture({
+    size: [srcWidth, srcHeight, 1],
+    format: 'r8unorm',
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  device.queue.copyExternalImageToTexture(
+    { source: imageBitmap },
+    { texture: upliftTexture },
+    [imageBitmap.width, imageBitmap.height]
+  );
+
 
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
@@ -250,6 +251,19 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       ],
   });
 
+  // ping-pong buffers for stream/drainage/watershed
+  const streamBufferSize = 256 * 256; //nx * ny
+  const streamBuffers = [0, 1].map(() => {
+    return device.createBuffer({
+      label: "stream buffer creation",
+      size: streamBufferSize,
+      usage:
+        GPUBufferUsage.COPY_DST |
+        GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.STORAGE,
+    });
+  });
+
   // input/output textures
   const computeBindGroup0 = device.createBindGroup({
     label: "compute bind group 0",
@@ -266,6 +280,18 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       {
         binding: 3,
         resource: upliftTexture.createView(),
+      },
+      {
+        binding: 4,
+        resource: {
+          buffer: streamBuffers[0],
+        },
+      },
+      {
+        binding: 5,
+        resource: {
+          buffer: streamBuffers[1],
+        },
       },
     ],
   });
@@ -286,11 +312,22 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         binding: 3,
         resource: upliftTexture.createView(),
       },
+      {
+        binding: 4,
+        resource: {
+          buffer: streamBuffers[1],
+        },
+      },
+      {
+        binding: 5,
+        resource: {
+          buffer: streamBuffers[0],
+        },
+      },
     ],
   });
 
   const computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
-
 
   const show2DRenderBindGroup = device.createBindGroup({
     layout: fullscreenTexturePipeline.getBindGroupLayout(0),
@@ -328,6 +365,12 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     ])
   );
 
+  device.queue.writeBuffer(
+    streamBuffers[0],
+    0,
+    new Float32Array().fill(0.0)
+  );
+
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
@@ -340,6 +383,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       computePass.setBindGroup(0, simulationConstants);
       computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
       computePass.dispatchWorkgroups(
+        // (Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1,
+        // (Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
         Math.ceil(srcWidth),
         Math.ceil(srcHeight)
       );
