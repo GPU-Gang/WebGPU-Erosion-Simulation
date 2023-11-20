@@ -20,9 +20,9 @@ struct SimulationParams {
 
 // ----------- Global parameters -----------
 // 0: Stream power
-// TODO 1: Stream power + Hillslope (Laplacian)
-// TODO 2: Stream power + Hillslope (Laplacian) + Debris slope
-const erosionMode : i32 = 0;
+// 1: Stream power + Hillslope (Laplacian)
+// 2: Stream power + Hillslope (Laplacian) + Debris slope
+const erosionMode : i32 = 2;
 
 const uplift : f32 = 0.005;//0.01;
 const k : f32 = 0.05;//0.0005;
@@ -110,6 +110,37 @@ fn WaterSteepest(p : vec2i) -> f32 {
   return water;
 }
 
+fn Laplacian(p : vec2i) -> f32 {
+  var laplacian = 0.0;
+  var i : i32 = p.x;
+  var j : i32 = p.y;
+
+  var sqrCellDiagX = simParams.cellDiagX * simParams.cellDiagX;
+  var sqrCellDiagY = simParams.cellDiagY * simParams.cellDiagY;
+
+  if (i == 0) {
+    laplacian += (Height(p) - 2.0 * Height(vec2i(i+1, j)) + Height(vec2i(i+2, j))) / sqrCellDiagX;
+  }
+  else if (i == simParams.nx - 1) {
+    laplacian += (Height(p) - 2.0 * Height(vec2i(i-1, j)) + Height(vec2i(i-2, j))) / sqrCellDiagX;
+  }
+  else {
+    laplacian += (Height(vec2i(i+1, j)) - 2.0 * Height(vec2i(i, j)) + Height(vec2i(i-1, j))) / sqrCellDiagX;
+  }
+  
+  if (j == 0) {
+    laplacian += (Height(p) - 2.0 * Height(vec2i(i, j+1)) + Height(vec2i(i, j+2))) / sqrCellDiagY;
+  }
+  else if (i == simParams.nx - 1) {
+    laplacian += (Height(p) - 2.0 * Height(vec2i(i, j-1)) + Height(vec2i(i, j-2))) / sqrCellDiagY;
+  }
+  else {
+    laplacian += (Height(vec2i(i, j+1)) - 2.0 * Height(vec2i(i, j)) + Height(vec2i(i, j-1))) / sqrCellDiagY;
+  }
+
+  return laplacian;
+}
+
 fn Read(p : vec2i) -> vec4f {
   if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) {
     return vec4f();
@@ -167,15 +198,15 @@ fn main(
   var erosion = k * pow(data.y, p_sa) * pow(pSlope, p_sl);
 
   var newHeight = data.x;
-  if (erosionMode == 0) {          // Stream power
+  if (erosionMode == 0) {           // Stream power
     newHeight -= dt * (erosion);
   }
-  // else if (erosionMode == 1) {  // Stream power + Hillslope erosion (Laplacian)
-  //   newHeight -= dt * (erosion - k_h * Laplacian(p));
-  // }
-  // else if (erosionMode == 2) {  // Stream power + Hillslope erosion (Laplacian) + Debris flow
-  //   newHeight -= dt * (erosion - k_h * Laplacian(p) - k_d * pSlope);
-  // }
+  else if (erosionMode == 1) {      // Stream power + Hillslope erosion (Laplacian)
+    newHeight -= dt * (erosion - k_h * Laplacian(p));
+  }
+  else if (erosionMode == 2) {      // Stream power + Hillslope erosion (Laplacian) + Debris flow
+    newHeight -= dt * (erosion - k_h * Laplacian(p) - k_d * pSlope);
+  }
 
   newHeight = max(newHeight, receiver.x);
   newHeight += dt * uplift * data.z;
