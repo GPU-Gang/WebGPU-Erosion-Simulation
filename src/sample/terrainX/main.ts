@@ -172,8 +172,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   //////////////////////////////////////////////////////////////////////////////
 
   // heightmap
-  var response = await fetch('assets/heightfields/hfTest1.png');
-  var imageBitmap = await createImageBitmap(await response.blob());
+  let response = await fetch('assets/heightfields/hfTest1.png');
+  let imageBitmap = await createImageBitmap(await response.blob());
   const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
 
   // ping-pong buffers for 2d render
