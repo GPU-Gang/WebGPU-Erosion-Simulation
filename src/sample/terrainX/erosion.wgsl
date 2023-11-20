@@ -15,8 +15,8 @@ struct SimulationParams {
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(3) var inUplift : texture_2d<f32>;
-@group(1) @binding(4) var<storage, read_write> inStream : array<f32>;
-@group(1) @binding(5) var<storage, read_write> outStream : array<f32>;
+@group(1) @binding(4) var inStream : texture_2d<f32>;
+@group(1) @binding(5) var outStream : texture_storage_2d<rgba8unorm, write>;
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -24,13 +24,13 @@ struct SimulationParams {
 // TODO 2: Stream power + Hillslope (Laplacian) + Debris slope
 const erosionMode : i32 = 0;
 
-const uplift : f32 = 0.01;
-const k : f32 = 0.0005;
+const uplift : f32 = 0.005;//0.01;
+const k : f32 = 0.05;//0.0005;
 const k_d : f32 = 10.0;
-const k_h : f32 = 2.0;
-const p_sa : f32 = 0.8;
-const p_sl : f32 = 2.0;
-const dt : f32 = 1.0;
+const k_h : f32 = 3.0;//2.0;
+const p_sa : f32 = 1.0;//0.8;
+const p_sl : f32 = 1.0;//2.0;
+const dt : f32 = 7.0;//1.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -52,6 +52,11 @@ fn Height(p : vec2i) -> f32 {
 
 fn UpliftAt(p : vec2i) -> f32 {
     let color = textureLoad(inUplift, vec2u(p), 0);
+    return color.r; // also greyscale?
+}
+
+fn StreamAt(p : vec2i) -> f32 {
+    let color = textureLoad(inStream, vec2u(p), 0);
     return color.r; // also greyscale?
 }
 
@@ -90,8 +95,7 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
 fn Stream(p : vec2i) -> f32 {
   if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
   
-  var index_p = ToIndex1D(p.x, p.y);
-  return inStream[index_p];
+  return StreamAt(p);
 }
 
 fn WaterSteepest(p : vec2i) -> f32 {
@@ -113,14 +117,14 @@ fn Read(p : vec2i) -> vec4f {
 
   var ret = vec4f();
   ret.x = Height(p);        // Bedrock elevation
-  ret.y = inStream[ToIndex1DFromCoord(p)];              // Stream area
+  ret.y = StreamAt(p);      // Stream area
   ret.z = UpliftAt(p);      // Uplift factor
   return ret;
 }
 
 fn Write(p : vec2i, data : vec4f) {
   textureStore(outElevation, p, vec4f(data.x));
-  outStream[ToIndex1DFromCoord(p)] = data.y;
+  textureStore(outStream, p, vec4f(data.y));
 }
 
 
