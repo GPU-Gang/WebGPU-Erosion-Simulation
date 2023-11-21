@@ -1,10 +1,53 @@
-import { mat4, vec3 } from 'wgpu-matrix';
+import { Mat4, mat4, vec3, vec4 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
-
+import Camera from '../camera';
 import erosionWGSL from './erosion.wgsl';
 import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
+import Quad from './rendering/quad';
 
 let currSourceTexIndex = 0;
+
+// Geometries
+let inputHeightmapDisplayQuad: Quad;
+let terrainQuad: Quad;
+
+function setupGeometry(device: GPUDevice)
+{
+  inputHeightmapDisplayQuad = new Quad(vec4.create(2.5,2.5,0,0), vec3.create(0.3,0.3,1));
+  inputHeightmapDisplayQuad.create(device);
+
+  terrainQuad = new Quad(vec4.create(0,0,0,0), vec3.create(1,1,1), vec3.create(0,180,0));
+  terrainQuad.create(device);
+}
+
+function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
+                                modelMatrix: Mat4, viewMatrix: Mat4, projMatrix: Mat4)
+{
+  const mvp = mat4.identity();
+  mat4.multiply(viewMatrix, modelMatrix, mvp);
+  mat4.multiply(projMatrix, mvp, mvp);
+
+  // prettier-ignore
+  device.queue.writeBuffer(
+    uniformBuffer,
+    bufferOffset,
+    new Float32Array([
+      // modelViewProjectionMatrix
+      mvp[0], mvp[1], mvp[2], mvp[3],
+      mvp[4], mvp[5], mvp[6], mvp[7],
+      mvp[8], mvp[9], mvp[10], mvp[11],
+      mvp[12], mvp[13], mvp[14], mvp[15],
+
+      viewMatrix[0], viewMatrix[4], viewMatrix[8], // right
+
+      0, // padding
+
+      viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
+
+      0, // padding
+    ])
+  );
+}
 
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const adapter = await navigator.gpu.requestAdapter();
@@ -24,93 +67,52 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     alphaMode: 'premultiplied',
   });
 
-  //TODO: From particles sample - Not sure if we need this but leaving in case needed for rendering SDF terrain
-/*  const renderPipeline = device.createRenderPipeline({
-    layout: 'auto',
-    vertex: {
-      module: device.createShaderModule({
-        code: particleWGSL,  //will need to be replaced by our own vert shader
-      }),
-      entryPoint: 'vs_main',
-      buffers: [
-        {
-          // instanced particles buffer
-          arrayStride: particleInstanceByteSize,
-          stepMode: 'instance',
-          attributes: [
-            {
-              // position
-              shaderLocation: 0,
-              offset: particlePositionOffset,
-              format: 'float32x3',
-            },
-            {
-              // color
-              shaderLocation: 1,
-              offset: particleColorOffset,
-              format: 'float32x4',
-            },
-          ],
-        },
-        {
-          // quad vertex buffer
-          arrayStride: 2 * 4, // vec2<f32>
-          stepMode: 'vertex',
-          attributes: [
-            {
-              // vertex positions
-              shaderLocation: 2,
-              offset: 0,
-              format: 'float32x2',
-            },
-          ],
-        },
-      ],
-    },
-    fragment: {
-      module: device.createShaderModule({
-        code: particleWGSL, //will need to be replaced by our own fragment shader
-      }),
-      entryPoint: 'fs_main',
-      targets: [
-        {
-          format: presentationFormat,
-          blend: {
-            color: {
-              srcFactor: 'src-alpha',
-              dstFactor: 'one',
-              operation: 'add',
-            },
-            alpha: {
-              srcFactor: 'zero',
-              dstFactor: 'one',
-              operation: 'add',
-            },
-          },
-        },
-      ],
-    },
-    primitive: {
-      topology: 'triangle-list',
-    },
+  setupGeometry(device);
 
-    depthStencil: {
-      depthWriteEnabled: false,
-      depthCompare: 'less',
-      format: 'depth24plus',
-    },
-  });*/
+  // Setup camera
+  const camera = new Camera(vec3.create(0, 0, -3), terrainQuad.center);
+  camera.setAspectRatio(canvas.width / canvas.height);
+  camera.updateProjectionMatrix();
 
   //////////////////////////////////////////////////////////////////////////////
   // 2D Texture Render Pipeline
   //////////////////////////////////////////////////////////////////////////////
-  const fullscreenTexturePipeline = device.createRenderPipeline({
+  const renderPipeline = device.createRenderPipeline({
     layout: 'auto',
     vertex: {
       module: device.createShaderModule({
         code: fullscreenTexturedWGSL,
       }),
       entryPoint: 'vert_main',
+      buffers:[
+        // positions buffer
+        {
+          arrayStride: 4*4,
+          attributes: [{
+            shaderLocation: 0,
+            format: "float32x4",
+            offset: 0
+          }]
+        },
+        // normals buffer
+        {
+          arrayStride: 4*4,
+          attributes: [{
+            shaderLocation: 1,
+            format: "float32x4",
+            offset: 0
+          }]
+        },
+        // uvs buffer
+        {
+          arrayStride: 2*4,
+          attributes: [{
+            shaderLocation: 2,
+            format: "float32x2",
+            offset: 0
+          }]
+        }
+      ]
     },
     fragment: {
       module: device.createShaderModule({
@@ -125,6 +127,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     },
     primitive: {
       topology: 'triangle-list',
+      cullMode: 'back'
     },
   });
 
@@ -133,39 +136,24 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     minFilter: 'linear',
   });
 
-/*  const renderPassDescriptor: GPURenderPassDescriptor = {
-    colorAttachments: [
-      {
-        view: undefined, // Assigned later
-        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-        loadOp: 'clear',
-        storeOp: 'store',
-      },
-    ],
-    depthStencilAttachment: {
-      view: depthTexture.createView(),
-
-      depthClearValue: 1.0,
-      depthLoadOp: 'clear',
-      depthStoreOp: 'store',
-    },
-  };
-*/
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Quad vertex buffer
-  //////////////////////////////////////////////////////////////////////////////
-  const quadVertexBuffer = device.createBuffer({
-    size: 6 * 2 * 4, // 6x vec2<f32>
-    usage: GPUBufferUsage.VERTEX,
-    mappedAtCreation: true,
+  const depthTexture = device.createTexture({
+    size: [canvas.width, canvas.height],
+    format: 'depth24plus',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  // prettier-ignore
-  const vertexData = [
-    -1.0, -1.0, +1.0, -1.0, -1.0, +1.0, -1.0, +1.0, +1.0, -1.0, +1.0, +1.0,
-  ];
-  new Float32Array(quadVertexBuffer.getMappedRange()).set(vertexData);
-  quadVertexBuffer.unmap();
+
+  const offset = 256; // padding must be 256-byte aligned??
+  const uniformBufferSize = offset +
+    4 * 4 * 4 + // modelViewProjectionMatrix : mat4x4<f32>
+    3 * 4 + // right : vec3<f32>
+    4 + // padding
+    3 * 4 + // up : vec3<f32>
+    4 + // padding
+    0;
+  const uniformBuffer = device.createBuffer({
+    size: uniformBufferSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
 
   //////////////////////////////////////////////////////////////////////////////
   // Texture
@@ -180,6 +168,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const hfTextures = [0, 1].map(() => {
     return device.createTexture({
       size: [srcWidth, srcHeight, 1],
+      mipLevelCount: 1,//numMipLevels,
       format: 'rgba8unorm',
       usage:
         GPUTextureUsage.COPY_DST |
@@ -330,19 +319,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
   const computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
 
-  const show2DRenderBindGroup = device.createBindGroup({
-    layout: fullscreenTexturePipeline.getBindGroupLayout(0),
-    entries: [
-      {
-        binding: 0,
-        resource: sampler,
-      },
-      {
-        binding: 1,
-        resource: hfTextures[currSourceTexIndex].createView(),
-      },
-    ],
-  });
+  terrainQuad.createBindGroup(renderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex]);
+  inputHeightmapDisplayQuad.createBindGroup(renderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
   const simulationParams = {
@@ -369,6 +347,12 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
+
+    // update camera
+    mat4.identity(camera.viewMatrix);
+    mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
+    mat4.rotateX(camera.viewMatrix, Math.PI * -0.2, camera.viewMatrix);
+    camera.update();
 
     const commandEncoder = device.createCommandEncoder();
     //compute pass goes in the following stub
@@ -398,9 +382,26 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         },
       ],
       });
-      passEncoder.setPipeline(fullscreenTexturePipeline);
-      passEncoder.setBindGroup(0, show2DRenderBindGroup);
-      passEncoder.draw(6);
+      passEncoder.setPipeline(renderPipeline);
+      
+      // Draw main quad (terrain)
+      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera.viewMatrix, camera.projectionMatrix);
+      passEncoder.setBindGroup(0, terrainQuad.bindGroup);
+      passEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
+      passEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
+      passEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
+      passEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
+      passEncoder.drawIndexed(terrainQuad.count);
+
+      // Draw input texture as UI
+      writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity(), mat4.identity());
+      passEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
+      passEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
+      passEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
+      passEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
+      passEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
+      passEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
+
       passEncoder.end();
     }
 

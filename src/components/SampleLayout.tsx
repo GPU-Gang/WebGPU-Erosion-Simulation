@@ -29,7 +29,6 @@ const SampleLayout: React.FunctionComponent<
   const guiParentRef = useRef<HTMLDivElement | null>(null);
   const gui: GUI | undefined = useMemo(() => {
     if (props.gui && process.browser) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const dat = require('dat.gui');
       return new dat.GUI({ autoPlace: false });
     }
@@ -39,7 +38,6 @@ const SampleLayout: React.FunctionComponent<
   const statsParentRef = useRef<HTMLDivElement | null>(null);
   const stats: Stats | undefined = useMemo(() => {
     if (props.stats && process.browser) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const Stats = require('stats-js');
       return new Stats();
     }
