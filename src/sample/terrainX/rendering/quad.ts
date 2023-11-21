@@ -45,7 +45,7 @@ class Quad extends Drawable {
     this.uvs = new Float32Array([0,1,
         1,1,
         1,0,
-        0,0])
+        0,0]);
 
     this.count = this.indices.length;
 

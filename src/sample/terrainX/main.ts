@@ -296,7 +296,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     }
     texture = device.createTexture({
       size: [srcWidth, srcHeight, 1],
-      mipLevelCount: numMipLevels,
+      mipLevelCount: 1,//numMipLevels,
       format: 'rgba8unorm',
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
@@ -332,97 +332,97 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   // the alpha channel. The mip levels 1..N are generated to hold spawn
   // probabilities up to the top 1x1 mip level.
   //////////////////////////////////////////////////////////////////////////////
-  {
-    const probabilityMapImportLevelPipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: {
-        module: device.createShaderModule({ code: probabilityMapWGSL }),
-        entryPoint: 'import_level',
-      },
-    });
-    const probabilityMapExportLevelPipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: {
-        module: device.createShaderModule({ code: probabilityMapWGSL }),
-        entryPoint: 'export_level',
-      },
-    });
+  // {
+  //   const probabilityMapImportLevelPipeline = device.createComputePipeline({
+  //     layout: 'auto',
+  //     compute: {
+  //       module: device.createShaderModule({ code: probabilityMapWGSL }),
+  //       entryPoint: 'import_level',
+  //     },
+  //   });
+  //   const probabilityMapExportLevelPipeline = device.createComputePipeline({
+  //     layout: 'auto',
+  //     compute: {
+  //       module: device.createShaderModule({ code: probabilityMapWGSL }),
+  //       entryPoint: 'export_level',
+  //     },
+  //   });
 
-    const probabilityMapUBOBufferSize =
-      1 * 4 + // stride
-      3 * 4 + // padding
-      0;
-    const probabilityMapUBOBuffer = device.createBuffer({
-      size: probabilityMapUBOBufferSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const buffer_a = device.createBuffer({
-      size: textureWidth * textureHeight * 4,
-      usage: GPUBufferUsage.STORAGE,
-    });
-    const buffer_b = device.createBuffer({
-      size: textureWidth * textureHeight * 4,
-      usage: GPUBufferUsage.STORAGE,
-    });
-    device.queue.writeBuffer(
-      probabilityMapUBOBuffer,
-      0,
-      new Int32Array([textureWidth])
-    );
-    const commandEncoder = device.createCommandEncoder();
-    for (let level = 0; level < numMipLevels; level++) {
-      const levelWidth = textureWidth >> level;
-      const levelHeight = textureHeight >> level;
-      const pipeline =
-        level == 0
-          ? probabilityMapImportLevelPipeline.getBindGroupLayout(0)
-          : probabilityMapExportLevelPipeline.getBindGroupLayout(0);
-      const probabilityMapBindGroup = device.createBindGroup({
-        layout: pipeline,
-        entries: [
-          {
-            // ubo
-            binding: 0,
-            resource: { buffer: probabilityMapUBOBuffer },
-          },
-          {
-            // buf_in
-            binding: 1,
-            resource: { buffer: level & 1 ? buffer_a : buffer_b },
-          },
-          {
-            // buf_out
-            binding: 2,
-            resource: { buffer: level & 1 ? buffer_b : buffer_a },
-          },
-          {
-            // tex_in / tex_out
-            binding: 3,
-            resource: texture.createView({
-              format: 'rgba8unorm',
-              dimension: '2d',
-              baseMipLevel: level,
-              mipLevelCount: 1,
-            }),
-          },
-        ],
-      });
-      if (level == 0) {
-        const passEncoder = commandEncoder.beginComputePass();
-        passEncoder.setPipeline(probabilityMapImportLevelPipeline);
-        passEncoder.setBindGroup(0, probabilityMapBindGroup);
-        passEncoder.dispatchWorkgroups(Math.ceil(levelWidth / 64), levelHeight);
-        passEncoder.end();
-      } else {
-        const passEncoder = commandEncoder.beginComputePass();
-        passEncoder.setPipeline(probabilityMapExportLevelPipeline);
-        passEncoder.setBindGroup(0, probabilityMapBindGroup);
-        passEncoder.dispatchWorkgroups(Math.ceil(levelWidth / 64), levelHeight);
-        passEncoder.end();
-      }
-    }
-    device.queue.submit([commandEncoder.finish()]);
-  }
+  //   const probabilityMapUBOBufferSize =
+  //     1 * 4 + // stride
+  //     3 * 4 + // padding
+  //     0;
+  //   const probabilityMapUBOBuffer = device.createBuffer({
+  //     size: probabilityMapUBOBufferSize,
+  //     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  //   });
+  //   const buffer_a = device.createBuffer({
+  //     size: textureWidth * textureHeight * 4,
+  //     usage: GPUBufferUsage.STORAGE,
+  //   });
+  //   const buffer_b = device.createBuffer({
+  //     size: textureWidth * textureHeight * 4,
+  //     usage: GPUBufferUsage.STORAGE,
+  //   });
+  //   device.queue.writeBuffer(
+  //     probabilityMapUBOBuffer,
+  //     0,
+  //     new Int32Array([textureWidth])
+  //   );
+  //   const commandEncoder = device.createCommandEncoder();
+  //   for (let level = 0; level < numMipLevels; level++) {
+  //     const levelWidth = textureWidth >> level;
+  //     const levelHeight = textureHeight >> level;
+  //     const pipeline =
+  //       level == 0
+  //         ? probabilityMapImportLevelPipeline.getBindGroupLayout(0)
+  //         : probabilityMapExportLevelPipeline.getBindGroupLayout(0);
+  //     const probabilityMapBindGroup = device.createBindGroup({
+  //       layout: pipeline,
+  //       entries: [
+  //         {
+  //           // ubo
+  //           binding: 0,
+  //           resource: { buffer: probabilityMapUBOBuffer },
+  //         },
+  //         {
+  //           // buf_in
+  //           binding: 1,
+  //           resource: { buffer: level & 1 ? buffer_a : buffer_b },
+  //         },
+  //         {
+  //           // buf_out
+  //           binding: 2,
+  //           resource: { buffer: level & 1 ? buffer_b : buffer_a },
+  //         },
+  //         {
+  //           // tex_in / tex_out
+  //           binding: 3,
+  //           resource: texture.createView({
+  //             format: 'rgba8unorm',
+  //             dimension: '2d',
+  //             baseMipLevel: level,
+  //             mipLevelCount: 1,
+  //           }),
+  //         },
+  //       ],
+  //     });
+  //     if (level == 0) {
+  //       const passEncoder = commandEncoder.beginComputePass();
+  //       passEncoder.setPipeline(probabilityMapImportLevelPipeline);
+  //       passEncoder.setBindGroup(0, probabilityMapBindGroup);
+  //       passEncoder.dispatchWorkgroups(Math.ceil(levelWidth / 64), levelHeight);
+  //       passEncoder.end();
+  //     } else {
+  //       const passEncoder = commandEncoder.beginComputePass();
+  //       passEncoder.setPipeline(probabilityMapExportLevelPipeline);
+  //       passEncoder.setBindGroup(0, probabilityMapBindGroup);
+  //       passEncoder.dispatchWorkgroups(Math.ceil(levelWidth / 64), levelHeight);
+  //       passEncoder.end();
+  //     }
+  //   }
+  //   device.queue.submit([commandEncoder.finish()]);
+  // }
 
   //////////////////////////////////////////////////////////////////////////////
   // Simulation compute pipeline
