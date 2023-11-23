@@ -131,7 +131,7 @@ fn Laplacian(p : vec2i) -> f32 {
   if (j == 0) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i, j+1)) + Height(vec2i(i, j+2))) / sqrCellDiagY;
   }
-  else if (i == simParams.nx - 1) {
+  else if (j == simParams.ny - 1) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i, j-1)) + Height(vec2i(i, j-2))) / sqrCellDiagY;
   }
   else {
