@@ -3,6 +3,7 @@ import { makeSample, SampleInit } from '../../components/SampleLayout';
 import Camera from '../camera';
 import erosionWGSL from './erosion.wgsl';
 import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
+import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 
 let currSourceTexIndex = 0;
@@ -18,6 +19,65 @@ function setupGeometry(device: GPUDevice)
 
   terrainQuad = new Quad(vec4.create(0,0,0,0), vec3.create(1,1,1), vec3.create(0,180,0));
   terrainQuad.create(device);
+}
+
+function createRenderPipeline(device: GPUDevice, shaderText: string, presentationFormat: GPUTextureFormat)
+{
+  const renderPipeline = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: {
+      module: device.createShaderModule({
+        code: shaderText,
+      }),
+      entryPoint: 'vert_main',
+      buffers:[
+        // positions buffer
+        {
+          arrayStride: 4*4,
+          attributes: [{
+            shaderLocation: 0,
+            format: "float32x4",
+            offset: 0
+          }]
+        },
+        // normals buffer
+        {
+          arrayStride: 4*4,
+          attributes: [{
+            shaderLocation: 1,
+            format: "float32x4",
+            offset: 0
+          }]
+        },
+        // uvs buffer
+        {
+          arrayStride: 2*4,
+          attributes: [{
+            shaderLocation: 2,
+            format: "float32x2",
+            offset: 0
+          }]
+        }
+      ]
+    },
+    fragment: {
+      module: device.createShaderModule({
+        code: fullscreenTexturedWGSL,
+      }),
+      entryPoint: 'frag_main',
+      targets: [
+        {
+          format: presentationFormat,
+        },
+      ],
+    },
+    primitive: {
+      topology: 'triangle-list',
+      cullMode: 'back'
+    },
+  });
+
+  return renderPipeline;
 }
 
 function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
@@ -77,59 +137,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   //////////////////////////////////////////////////////////////////////////////
   // 2D Texture Render Pipeline
   //////////////////////////////////////////////////////////////////////////////
-  const renderPipeline = device.createRenderPipeline({
-    layout: 'auto',
-    vertex: {
-      module: device.createShaderModule({
-        code: fullscreenTexturedWGSL,
-      }),
-      entryPoint: 'vert_main',
-      buffers:[
-        // positions buffer
-        {
-          arrayStride: 4*4,
-          attributes: [{
-            shaderLocation: 0,
-            format: "float32x4",
-            offset: 0
-          }]
-        },
-        // normals buffer
-        {
-          arrayStride: 4*4,
-          attributes: [{
-            shaderLocation: 1,
-            format: "float32x4",
-            offset: 0
-          }]
-        },
-        // uvs buffer
-        {
-          arrayStride: 2*4,
-          attributes: [{
-            shaderLocation: 2,
-            format: "float32x2",
-            offset: 0
-          }]
-        }
-      ]
-    },
-    fragment: {
-      module: device.createShaderModule({
-        code: fullscreenTexturedWGSL,
-      }),
-      entryPoint: 'frag_main',
-      targets: [
-        {
-          format: presentationFormat,
-        },
-      ],
-    },
-    primitive: {
-      topology: 'triangle-list',
-      cullMode: 'back'
-    },
-  });
+  const uiRenderPipeline = createRenderPipeline(device, fullscreenTexturedWGSL, presentationFormat);
+  const terrainRenderPipeline = createRenderPipeline(device, terrainRaymarch, presentationFormat);
 
   const sampler = device.createSampler({
     magFilter: 'linear',
@@ -319,8 +328,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
   const computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
 
-  terrainQuad.createBindGroup(renderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex]);
-  inputHeightmapDisplayQuad.createBindGroup(renderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
+  terrainQuad.createBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex]);
+  inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
   const simulationParams = {
@@ -370,9 +379,9 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       computePass.end();
       currSourceTexIndex = (currSourceTexIndex + 1) % 2;
     }
-    //full screen quad render pass goes in the following stub
+    //Terrain render pass goes in the following stub
     {
-      const passEncoder = commandEncoder.beginRenderPass({
+      const terrainPassEncoder = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
           view: context.getCurrentTexture().createView(),
@@ -382,27 +391,42 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         },
       ],
       });
-      passEncoder.setPipeline(renderPipeline);
+      terrainPassEncoder.setPipeline(terrainRenderPipeline);
       
       // Draw main quad (terrain)
       writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera.viewMatrix, camera.projectionMatrix);
-      passEncoder.setBindGroup(0, terrainQuad.bindGroup);
-      passEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
-      passEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
-      passEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
-      passEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
-      passEncoder.drawIndexed(terrainQuad.count);
+      terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
+      terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
+      terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
+      terrainPassEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
+      terrainPassEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
+      terrainPassEncoder.drawIndexed(terrainQuad.count);
 
+      terrainPassEncoder.end();
+    }
+    // UI render pass goes under the following stub
+    {
+      const uiPassEncoder = commandEncoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: context.getCurrentTexture().createView(),
+            clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            loadOp: 'load',   // load the last render pass instead of clearing it
+            storeOp: 'store',
+          },
+        ],
+        });
+      uiPassEncoder.setPipeline(uiRenderPipeline);
+      
       // Draw input texture as UI
       writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity(), mat4.identity());
-      passEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
-      passEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
-      passEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
-      passEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
-      passEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
-      passEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
-
-      passEncoder.end();
+      uiPassEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
+      uiPassEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
+      uiPassEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
+      uiPassEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
+      uiPassEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
+      uiPassEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
+      uiPassEncoder.end();
     }
 
     device.queue.submit([commandEncoder.finish()]);
