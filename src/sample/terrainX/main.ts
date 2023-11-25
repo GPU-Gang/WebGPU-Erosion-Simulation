@@ -143,29 +143,6 @@ function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, 
   );
 }
 
-// function writeRaytracingUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
-//                                       screenDims: Vec2, camera: Camera)
-// {
-//     // prettier-ignore
-//     device.queue.writeBuffer(
-//       uniformBuffer,
-//       bufferOffset,
-//       new Float32Array([
-//         // screen dims
-//         screenDims[0], screenDims[1],
-//         // camera right
-//         camera.viewMatrix[0], camera.viewMatrix[4], camera.viewMatrix[8],
-//         // camera up
-//         camera.viewMatrix[1], camera.viewMatrix[5], camera.viewMatrix[9],
-//         // camera forward
-  
-//         viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
-  
-//         0, // padding
-//       ])
-//     );
-// }
-
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter.requestDevice();
