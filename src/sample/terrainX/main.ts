@@ -82,10 +82,13 @@ function createRenderPipeline(device: GPUDevice, shaderText: string, presentatio
 }
 
 function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
-                                modelMatrix: Mat4, viewMatrix: Mat4, projMatrix: Mat4, screenWidth: number, screenHeight: number,
+                                modelMatrix: Mat4, camera: Camera,
                                 isInScreenSpace: Boolean = false)
 {
   const mvp = mat4.identity();
+
+  var viewMatrix = camera.viewMatrix();
+
   if (isInScreenSpace)
   {
     mat4.multiply(mvp, modelMatrix, mvp);
@@ -93,7 +96,7 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
   else
   {
     mat4.multiply(viewMatrix, modelMatrix, mvp);
-    mat4.multiply(projMatrix, mvp, mvp);
+    mat4.multiply(camera.projectionMatrix, mvp, mvp);
   }
 
   // prettier-ignore
@@ -122,7 +125,7 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
       viewMatrix[3], viewMatrix[7], viewMatrix[11], // u_Eye
       
       0,  // padding
-      screenWidth, screenHeight, // screen dimensions
+      camera.resolution[0], camera.resolution[1], // screen dimensions
       0, 0, // padding
     ])
   );
@@ -165,7 +168,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
   // Setup camera
   const camera = new Camera(vec3.create(0, 0, -3), terrainQuad.center);
-  camera.setAspectRatio(canvas.width / canvas.height);
+  camera.setResolution(vec2.create(canvas.width, canvas.height));
   camera.updateProjectionMatrix();
 
   //////////////////////////////////////////////////////////////////////////////
@@ -408,9 +411,9 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     if (!pageState.active) return;
 
     // update camera
-    mat4.identity(camera.viewMatrix);
-    mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
-    mat4.rotateX(camera.viewMatrix, Math.PI * -0.2, camera.viewMatrix);
+    // mat4.identity(camera.viewMatrix);
+    // mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
+    // mat4.rotateX(camera.viewMatrix, Math.PI * -0.2, camera.viewMatrix);
     camera.update();
 
     const commandEncoder = device.createCommandEncoder();
@@ -444,7 +447,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       terrainPassEncoder.setPipeline(terrainRenderPipeline);
       
       // Draw main quad (terrain)
-      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera.viewMatrix, camera.projectionMatrix, screen.width, screen.height, true);
+      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera);
       writeTerrainUniformBuffer(device, terrainUnifBuffer, vec2.create(simulationParams.lowerVertX, simulationParams.lowerVertY), vec2.create(simulationParams.upperVertX, simulationParams.upperVertY));
       terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
       terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
@@ -470,7 +473,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       uiPassEncoder.setPipeline(uiRenderPipeline);
       
       // Draw input texture as UI
-      writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity(), mat4.identity(), screen.width, screen.height, true);
+      writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), camera, true);
       uiPassEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
       uiPassEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
       uiPassEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
