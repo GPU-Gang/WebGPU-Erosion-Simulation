@@ -1,10 +1,11 @@
-import { Mat4, mat4, vec3, vec4 } from 'wgpu-matrix';
+import { Mat4, mat4, vec2, Vec2, vec3, vec4 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 import Camera from '../camera';
 import erosionWGSL from './erosion.wgsl';
 import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
 import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
+import TerrainQuad from './rendering/terrain';
 
 let currSourceTexIndex = 0;
 
@@ -17,7 +18,7 @@ function setupGeometry(device: GPUDevice)
   inputHeightmapDisplayQuad = new Quad(vec4.create(2.5,2.5,0,0), vec3.create(0.3,0.3,1));
   inputHeightmapDisplayQuad.create(device);
 
-  terrainQuad = new Quad(vec4.create(0,0,0,0), vec3.create(1,1,1), vec3.create(0,180,0));
+  terrainQuad = new TerrainQuad(vec4.create(0,0,0,0), vec3.create(1,1,1));
   terrainQuad.create(device);
 }
 
@@ -62,7 +63,7 @@ function createRenderPipeline(device: GPUDevice, shaderText: string, presentatio
     },
     fragment: {
       module: device.createShaderModule({
-        code: fullscreenTexturedWGSL,
+        code: shaderText,
       }),
       entryPoint: 'frag_main',
       targets: [
@@ -81,11 +82,19 @@ function createRenderPipeline(device: GPUDevice, shaderText: string, presentatio
 }
 
 function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
-                                modelMatrix: Mat4, viewMatrix: Mat4, projMatrix: Mat4)
+                                modelMatrix: Mat4, viewMatrix: Mat4, projMatrix: Mat4, screenWidth: number, screenHeight: number,
+                                isInScreenSpace: Boolean = false)
 {
   const mvp = mat4.identity();
-  mat4.multiply(viewMatrix, modelMatrix, mvp);
-  mat4.multiply(projMatrix, mvp, mvp);
+  if (isInScreenSpace)
+  {
+    mat4.multiply(mvp, modelMatrix, mvp);
+  }
+  else
+  {
+    mat4.multiply(viewMatrix, modelMatrix, mvp);
+    mat4.multiply(projMatrix, mvp, mvp);
+  }
 
   // prettier-ignore
   device.queue.writeBuffer(
@@ -105,9 +114,57 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
       viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
 
       0, // padding
+
+      viewMatrix[2], viewMatrix[6], viewMatrix[10], // forward
+
+      0, // padding
+
+      viewMatrix[3], viewMatrix[7], viewMatrix[11], // u_Eye
+      
+      0,  // padding
+      screenWidth, screenHeight, // screen dimensions
+      0, 0, // padding
     ])
   );
 }
+
+function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, aabbLowerLeft: Vec2, aabbUpperRight: Vec2)
+{
+  // prettier-ignore
+  device.queue.writeBuffer(
+    terrainBuffer,
+    0,
+    new Float32Array([
+      // AABB Lower Left Corner
+      aabbLowerLeft[0], aabbLowerLeft[1],
+      // AABB Upper Right Corner
+      aabbUpperRight[0], aabbUpperRight[1],
+    ])
+  );
+}
+
+// function writeRaytracingUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, bufferOffset: number,
+//                                       screenDims: Vec2, camera: Camera)
+// {
+//     // prettier-ignore
+//     device.queue.writeBuffer(
+//       uniformBuffer,
+//       bufferOffset,
+//       new Float32Array([
+//         // screen dims
+//         screenDims[0], screenDims[1],
+//         // camera right
+//         camera.viewMatrix[0], camera.viewMatrix[4], camera.viewMatrix[8],
+//         // camera up
+//         camera.viewMatrix[1], camera.viewMatrix[5], camera.viewMatrix[9],
+//         // camera forward
+  
+//         viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
+  
+//         0, // padding
+//       ])
+//     );
+// }
 
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const adapter = await navigator.gpu.requestAdapter();
@@ -151,16 +208,32 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
 
+  // Uniform Buffers
   const offset = 256; // padding must be 256-byte aligned??
   const uniformBufferSize = offset +
     4 * 4 * 4 + // modelViewProjectionMatrix : mat4x4<f32>
-    3 * 4 + // right : vec3<f32>
+    3 * 4 + // camera right : vec3<f32>
     4 + // padding
-    3 * 4 + // up : vec3<f32>
+    3 * 4 + // camera up : vec3<f32>
     4 + // padding
+    3 * 4 + // camera forward : vec3<f32>
+    4 + // padding
+    3 * 4 + // u_Eye : vec3<f32>
+    4 + // padding
+    2 * 4 + // screen dimensions : vec2<f32>
+    2 * 4 + // padding
     0;
   const uniformBuffer = device.createBuffer({
     size: uniformBufferSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const terrainUnifBufferSize = offset +
+    2 * 4 * 2 +   // AABB (vec2<f32> x2)
+    0;
+
+  const terrainUnifBuffer = device.createBuffer({
+    size: terrainUnifBufferSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -394,7 +467,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       terrainPassEncoder.setPipeline(terrainRenderPipeline);
       
       // Draw main quad (terrain)
-      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera.viewMatrix, camera.projectionMatrix);
+      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera.viewMatrix, camera.projectionMatrix, screen.width, screen.height, true);
+      writeTerrainUniformBuffer(device, terrainUnifBuffer, vec2.create(simulationParams.lowerVertX, simulationParams.lowerVertY), vec2.create(simulationParams.upperVertX, simulationParams.upperVertY));
       terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
       terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
       terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
@@ -419,7 +493,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       uiPassEncoder.setPipeline(uiRenderPipeline);
       
       // Draw input texture as UI
-      writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity(), mat4.identity());
+      writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), mat4.identity(), mat4.identity(), screen.width, screen.height, true);
       uiPassEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
       uiPassEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
       uiPassEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
