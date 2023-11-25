@@ -6,6 +6,9 @@ import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
 import Quad from './rendering/quad';
 
 let currSourceTexIndex = 0;
+let clicked = false;
+let clickX = 0;
+let clickY = 0;
 
 // Geometries
 let inputHeightmapDisplayQuad: Quad;
@@ -60,6 +63,25 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+  //code to perceive Ctrl + Mouse click begins here
+  let id;
+  canvas.addEventListener('mousedown', (e) => {
+    if(e.ctrlKey && e.button == 0){      
+      clicked = true;
+      clickX = e.offsetX;
+      clickY = e.offsetY;
+      id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
+        clicked = true;
+      }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
+    }
+  });
+
+  //once mouse button is released, clicks should no longer be perceived
+  canvas.addEventListener('mouseup', () => {  
+    clearInterval(id);   
+      clicked = false;
+  });
 
   context.configure({
     device,
@@ -348,6 +370,12 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     // Sample is no longer the active page.
     if (!pageState.active) return;
 
+    if(clicked) {
+      console.log("Control + Left Click perceived");
+      console.log(clickX);
+      console.log(clickY);
+      clicked = false;
+    }
     // update camera
     mat4.identity(camera.viewMatrix);
     mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
