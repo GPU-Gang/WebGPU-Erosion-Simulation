@@ -11,7 +11,7 @@ let currSourceTexIndex = 0;
 
 // Geometries
 let inputHeightmapDisplayQuad: Quad;
-let terrainQuad: Quad;
+let terrainQuad: TerrainQuad;
 
 function setupGeometry(device: GPUDevice)
 {
@@ -122,7 +122,7 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
 
       0, // padding
 
-      viewMatrix[3], viewMatrix[7], viewMatrix[11], // u_Eye
+      camera.getPosition()[0], camera.getPosition()[1], camera.getPosition()[2], // u_Eye
       
       0,  // padding
       camera.resolution[0], camera.resolution[1], // screen dimensions
@@ -381,7 +381,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
   const computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
 
-  terrainQuad.createBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex]);
+  terrainQuad.createTerrainBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex], terrainUnifBuffer);
   inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1

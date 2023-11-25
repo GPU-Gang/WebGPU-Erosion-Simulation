@@ -34,6 +34,12 @@ class Camera {
   {
     return this.controls.matrix;
   }
+
+  getPosition()
+  {
+    return this.controls.eye;
+  }
+
 };
 
 export default Camera;
