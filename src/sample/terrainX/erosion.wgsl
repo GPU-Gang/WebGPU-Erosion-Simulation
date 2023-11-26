@@ -30,7 +30,7 @@ const k_d : f32 = 10.0;
 const k_h : f32 = 3.0;//2.0;
 const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
-const dt : f32 = 7.0;//1.0;
+const dt : f32 = 2.0;//1.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
