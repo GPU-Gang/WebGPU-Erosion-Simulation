@@ -6,6 +6,7 @@ import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
 import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
+import TerrainParams from './terrainParams';
 import { Console } from 'console';
 
 let currSourceTexIndex = 0;
@@ -136,17 +137,19 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
   );
 }
 
-function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, aabbLowerLeft: Vec2, aabbUpperRight: Vec2)
+function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, terrainParams: TerrainParams)
 {
   // prettier-ignore
   device.queue.writeBuffer(
     terrainBuffer,
     0,
     new Float32Array([
+      // texture size
+      terrainParams.nx, terrainParams.ny,
       // AABB Lower Left Corner
-      aabbLowerLeft[0], aabbLowerLeft[1],
+      terrainParams.lowerVertX, terrainParams.lowerVertY,
       // AABB Upper Right Corner
-      aabbUpperRight[0], aabbUpperRight[1],
+      terrainParams.upperVertX, terrainParams.upperVertY,
     ])
   );
 }
@@ -215,6 +218,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   });
 
   const terrainUnifBufferSize = offset +
+    2 * 4 +       // texture size (nx, ny)
     2 * 4 * 2 +   // AABB (vec2<f32> x2)
     0;
 
@@ -391,24 +395,16 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
-  const simulationParams = {
-    nx: 256,
-    ny: 256,
-    lowerVertX: -5,
-    lowerVertY: -5,
-    upperVertX: 5,
-    upperVertY: 5,
-    cellDiagX: 1176.47,
-    cellDiagY: 1176.47,
-  };
+  const terrainParams: TerrainParams = new TerrainParams();
+
   device.queue.writeBuffer(
     simUnifBuffer,
     0,
     new Float32Array([
-        simulationParams.nx, simulationParams.ny,
-        simulationParams.lowerVertX, simulationParams.lowerVertY,
-        simulationParams.upperVertX, simulationParams.upperVertY,
-        simulationParams.cellDiagX, simulationParams.cellDiagY,
+        terrainParams.nx, terrainParams.ny,
+        terrainParams.lowerVertX, terrainParams.lowerVertY,
+        terrainParams.upperVertX, terrainParams.upperVertY,
+        terrainParams.cellDiagX, terrainParams.cellDiagY,
     ])
   );
 
@@ -463,7 +459,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       
       // Draw main quad (terrain)
       writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
-      writeTerrainUniformBuffer(device, terrainUnifBuffer, vec2.create(simulationParams.lowerVertX, simulationParams.lowerVertY), vec2.create(simulationParams.upperVertX, simulationParams.upperVertY));
+      writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
       terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
       terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
       terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);

@@ -9,6 +9,7 @@ struct Uniforms {
 
 struct Terrain
 {
+    textureSize: vec2<i32>, // texture size
     lowerLeft: vec2<f32>,   // AABB
     upperRight: vec2<f32>,  // AABB
 }
@@ -41,9 +42,10 @@ const FOVY : f32 = 45.0f * PI / 180.0;
 const MAX_ITERS : i32 = 256;
 const MIN_DIST : f32 = 0.00001f;
 const MAX_DIST : f32 = 1000000.0f;
-const EPSILON : vec3<f32> = vec3(0, MIN_DIST, 0);
+const EPSILON : f32 = MIN_DIST;
 const heightRange : vec2<f32> = vec2(0, 1);       // hardcoded range for now
 const K: f32 = 1.0f;                              // hardcoded Lipschitz constant
+const lightPos: vec3<f32> = vec3(5, 12, -5);       // light position
 
 // Data structures
 struct Ray {
@@ -61,7 +63,8 @@ struct IntersectAABBResult
 struct RaymarchResult
 {
     hit: bool,
-    t: f32
+    t: f32,
+    hitPoint: vec3<f32>,
 }
 
 /* =================================
@@ -229,16 +232,73 @@ fn raymarchTerrain(ray: Ray) -> RaymarchResult
 
         dist = terrainSdf(p);
 
-        if (dist <- 0.0f)
+        if (dist < 0.0f && !result.hit)
         {
             result.hit = true;
             result.t = t;
+            result.hitPoint = p;
+
+            // break;   // stupid webgpu uniformity analysis issue. TODO: find a way to optimise here
+        }
+
+        if (dist >= MAX_DIST)
+        {
+            // break;   // stupid webgpu uniformity analysis issue. TODO: find a way to optimise here
         }
 
         t += max(dist / kr, MIN_DIST);
     }
 
     return result;
+}
+
+/* ============================================
+ * ================= Shading ==================
+ * ============================================
+*/
+
+fn computeNormal(p: vec3<f32>, eps: vec2<f32>) -> vec3<f32>
+{
+    var e: vec3<f32> = vec3(eps.x, 0.0, eps.y);
+    return normalize(vec3(getTerrainElevation(p.xz + e.xy) - getTerrainElevation(p.xz - e.xy),
+                            getTerrainElevation(p.xz + e.yz) - getTerrainElevation(p.xz - e.yz),
+                            length(eps)
+    ));
+}
+
+fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
+{
+    var n: vec3<f32> = computeNormal(p, (terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
+
+	// Terrain sides and bottom
+	if (abs(sdfBox2D(p.xz, terrain.lowerLeft, terrain.upperRight)) < EPSILON
+        || abs(p.y - heightRange.x + 0.1f * (heightRange.y - heightRange.x)) < EPSILON)
+    {
+        return vec4(0.3f, 0.29f, 0.31f, 1.0f);
+    }
+	
+    var shadingMode: i32 = 1;       // hardcoded
+
+	// Terrain interior
+	if (shadingMode == 0)
+	{
+        // TODO: find a way to optimise this non-uniformity nonsense
+		// var n: vec3<f32> = computeNormal(p, (terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
+		return vec4(0.2 * (vec3(3.0) + 2.0 * n.xyz), 1.0);
+	}
+	else if (shadingMode == 1)
+	{
+		var lightDir: vec3<f32> = normalize(p - lightPos);
+        var ambientTerm: f32 = 0.2;
+        var lambertianTerm: vec3<f32> = vec3(max(dot(n, lightDir), 0.0f) + ambientTerm);
+        
+        var col: vec3<f32> = vec3(1,1,1);
+		return vec4(lambertianTerm * col, 1.0f);
+	}
+	else
+    {
+		return vec4(1.0, 1.0, 1.0, 1.0);
+    }
 }
 
 @fragment
@@ -248,9 +308,13 @@ fn frag_main(@location(0) fs_UV : vec2<f32>) -> @location(0) vec4<f32>
     var raymarchResult : RaymarchResult = raymarchTerrain(ray);
     var outColor : vec4<f32> = vec4(0,0,0.2,1);
 
+    var terrainColor: vec4<f32> = getTerrainColour(raymarchResult.hitPoint);
+
     if (raymarchResult.hit)
     {
-        outColor = vec4(1,0,0,1);
+        outColor = terrainColor;
+        // TODO: find a way to optimise this WebGPU non-uniformity nonsense
+        // outColor = getTerrainColour(raymarchResult.hitPoint);
     }
 
     // outColor = vec4((uniforms.right), 1);
