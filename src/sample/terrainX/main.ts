@@ -172,7 +172,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   setupGeometry(device);
 
   // Setup camera
-  const camera = new Camera(vec3.create(0, 0, -3), terrainQuad.center);
+  const target = vec3.create(terrainQuad.center[0],  terrainQuad.center[1] + 2, terrainQuad.center[2]);
+  const camera = new Camera(vec3.create(0, 0, -10), target);
   camera.setResolution(vec2.create(canvas.width, canvas.height));
   camera.updateProjectionMatrix();
 
@@ -393,10 +394,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const simulationParams = {
     nx: 256,
     ny: 256,
-    lowerVertX: -150.0 * 1000.0,
-    lowerVertY: -150.0 * 1000.0,
-    upperVertX: 150.0 * 1000.0,
-    upperVertY: 150.0 * 1000.0,
+    lowerVertX: -5,
+    lowerVertY: -5,
+    upperVertX: 5,
+    upperVertY: 5,
     cellDiagX: 1176.47,
     cellDiagY: 1176.47,
   };

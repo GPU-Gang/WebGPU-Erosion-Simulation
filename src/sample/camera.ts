@@ -7,7 +7,7 @@ class Camera {
   fovy: number = 45;
   aspectRatio: number = 1;
   near: number = 0.1;
-  far: number = 10000;
+  far: number = 1000000;
   resolution: Vec2 = vec2.create(400,400);
   right: Vec3 = vec3.create(1,0,0);
   up: Vec3 = vec3.create(0,1,0);
@@ -24,6 +24,9 @@ class Camera {
     // flip rotations so it matches the standard :)
     this.controls.flipX = true;
     this.controls.flipY = true;
+
+    // flip rotation on the X axis also because this camera system is really weiiiiird :)
+    this.controls.rotate(0,3.14159,0);
   }
 
   setResolution(resolution: Vec2) {

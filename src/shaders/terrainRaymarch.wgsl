@@ -14,8 +14,8 @@ struct Terrain
 }
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
-@group(0) @binding(1) var mySampler : sampler;
-@group(0) @binding(2) var myTexture : texture_2d<f32>;
+@group(0) @binding(1) var heightFieldSampler : sampler;
+@group(0) @binding(2) var heightfield : texture_2d<f32>;
 @group(0) @binding(3) var<uniform> terrain : Terrain;
 
 struct VertexOutput {
@@ -42,6 +42,8 @@ const MAX_ITERS : i32 = 256;
 const MIN_DIST : f32 = 0.00001f;
 const MAX_DIST : f32 = 1000000.0f;
 const EPSILON : vec3<f32> = vec3(0, MIN_DIST, 0);
+const heightRange : vec2<f32> = vec2(0, 1);       // hardcoded range for now
+const K: f32 = 1.0f;                              // hardcoded Lipschitz constant
 
 // Data structures
 struct Ray {
@@ -62,6 +64,11 @@ struct RaymarchResult
     t: f32
 }
 
+/* =================================
+ * ========= RAY FUNCTIONS =========
+ * =================================
+*/
+
 fn rayCast(fs_UV: vec2<f32>) -> Ray
 {
     var ndc : vec2<f32> = (fs_UV);
@@ -76,11 +83,6 @@ fn rayCast(fs_UV: vec2<f32>) -> Ray
     return Ray(uniforms.eye, normalize(p - uniforms.eye));
 }
 
-fn intersectSphere(p: vec3<f32>) -> f32
-{
-    return distance(p, vec3(0,0,0)) - 0.257f;
-}
-
 fn intersectAABB(ray: Ray) -> IntersectAABBResult
 {
     var result : IntersectAABBResult;
@@ -88,12 +90,10 @@ fn intersectAABB(ray: Ray) -> IntersectAABBResult
     result.tNear = -1;
     result.tFar = -1;
 
-    var zRange : vec2<f32> = vec2(0, 0.3);       // hardcoded range for now
-
 	var rinvDir : vec3<f32> = 1.0 / ray.direction;
-	var delta : f32 = 0.1 * (zRange.y - zRange.x);
-	var tbot : vec3<f32> = rinvDir * (vec3(terrain.lowerLeft.x, zRange.x - delta, terrain.lowerLeft.y) - ray.origin);
-	var ttop : vec3<f32> = rinvDir * (vec3(terrain.upperRight.x, zRange.y + delta, terrain.upperRight.y) - ray.origin);
+	var delta : f32 = 0.1 * (heightRange.y - heightRange.x);
+	var tbot : vec3<f32> = rinvDir * (vec3(terrain.lowerLeft.x, heightRange.x - delta, terrain.lowerLeft.y) - ray.origin);
+	var ttop : vec3<f32> = rinvDir * (vec3(terrain.upperRight.x, heightRange.y + delta, terrain.upperRight.y) - ray.origin);
 
 	var tmin : vec3<f32> = min(ttop, tbot);
 	var tmax : vec3<f32> = max(ttop, tbot);
@@ -109,6 +109,88 @@ fn intersectAABB(ray: Ray) -> IntersectAABBResult
     return result;
 }
 
+/* ===============================
+ * ======== SDF Primitives =======
+ * ===============================
+*/
+
+fn sdfSphere(p: vec3<f32>) -> f32
+{
+    return distance(p, vec3(0,0,0)) - 0.257f;
+}
+
+fn sdfBox2D(p: vec2<f32>, lowerLeft: vec2<f32>, upperRight: vec2<f32>) -> f32
+{
+	var center: vec2<f32> = 0.5 * (lowerLeft + upperRight);
+	var r: vec2<f32> = 0.5 * (upperRight - lowerLeft);
+	var q: vec2<f32> = abs(p - center) - r;
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+fn sdfBox3D(p: vec3<f32>, lowerLeft: vec3<f32>, upperRight: vec3<f32>) -> f32
+{
+	var center: vec3<f32> = 0.5 * (lowerLeft + upperRight);
+	var r: vec3<f32> = 0.5 * (upperRight - lowerLeft);
+	var q: vec3<f32> = abs(p - center) - r;
+	return length(max(q, vec3(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+/* ==================================
+ * ========= Operations =========
+ * ==================================
+*/
+
+// Intersection from IQ
+fn sdfIntersection(sdfA: f32, sdfB: f32) -> f32
+{
+	return max(sdfA, sdfB);
+}
+
+// Remap a value in one range to a different range
+fn remap(val: f32, oldMin: f32, oldMax: f32, newMin: f32, newMax: f32) -> f32
+{
+	return newMin + (newMax - newMin) * ((val - oldMin) / (oldMax - oldMin));
+}
+
+/* ============================================
+ * ======== Heightfield calculations ==========
+ * ============================================
+*/
+
+// Read height from the heightfield texture given a world point
+// returns height at point
+fn getTerrainElevation(p: vec2<f32>) -> f32
+{
+    // calculate the uv value between 0 and 1
+	var numerator: vec2<f32> = p - terrain.lowerLeft;       // lower left to current point
+	var denom: vec2<f32> = terrain.upperRight - terrain.lowerLeft;  // full range
+	var uv: vec2<f32> = numerator / denom;    // remap the vec2 point to a 0->1 range
+
+    var heightCol : vec4<f32> = textureSample(heightfield, heightFieldSampler, uv);
+    var height : f32 = heightCol.r; // black and white means same colour in all channels
+    
+    // this is between 0 and 1 --> remap to correct height range
+	return remap(height, 0.0f, 1.0f, heightRange.x, heightRange.y);
+}
+
+/* ============================================
+ * ============ Main Raymarching ==============
+ * ============================================
+*/
+
+// Signed distance field object
+// returns signed distance value for the terrain at the point p.
+fn terrainSdf(p: vec3<f32>) -> f32 {
+	var t : f32 = p.y - getTerrainElevation(p.xz);
+	var delta : f32 = 0.1f * (heightRange.y - heightRange.x);
+    
+    var boxSdf: f32 = sdfBox3D(p, 
+                                vec3(terrain.lowerLeft.x, heightRange.x - delta, terrain.lowerLeft.y),
+                                vec3(terrain.upperRight.x, heightRange.y + delta, terrain.upperRight.y));
+
+    return sdfIntersection(boxSdf, t);
+}
+
 fn raymarchTerrain(ray: Ray) -> RaymarchResult
 {
     var result : RaymarchResult;
@@ -116,32 +198,44 @@ fn raymarchTerrain(ray: Ray) -> RaymarchResult
     result.t = -1;
 
     var aabbTest = intersectAABB(ray);
-    if (!aabbTest.hit)
-    {
-        // didn't hit AABB
-        // def not hitting terrain
-        return result;
-    }
-    else
-    {
-        result.hit = true;
-        return result;
-    }
 
-    var t : f32 = MIN_DIST;
+    // TODO: find a way to re-enable this optimisation because WebGPU has over strict uniformity analysis
+    // if (!aabbTest.hit)
+    // {
+    //     // didn't hit AABB
+    //     // def not hitting terrain
+    //     return result;
+    // }
+
+    var t : f32 = max(MIN_DIST, aabbTest.tNear);        // start at the point of intersection with the AABB, don't waste unnecessary marching steps
+    var dist : f32 = 0;
+    var p: vec3<f32>;
+    
+    // Lipschitz bound is dependent on ray direction
+	var uz: f32 = abs(ray.direction.y);
+	var kr: f32 = uz + K * sqrt(1.0f - (uz * uz));
+
     for (var i : i32 = 0; i<MAX_ITERS; i++)
     {
-        var p : vec3<f32> = ray.origin + ray.direction * t;
-        var m : f32 = 1;
+        // TODO: find a way to re-enable this optimisation because WebGPU has over strict uniformity analysis
+        // if (t < aabbTest.tFar)
+        // {
+        //     // passed the AABB and didn't hit anything
+        //     // stop raymarching
+        //     break;
+        // }
 
-        m = intersectSphere(p);
-        t += m;
+        p = ray.origin + ray.direction * t;
 
-        if (m < MIN_DIST)
+        dist = terrainSdf(p);
+
+        if (dist <- 0.0f)
         {
             result.hit = true;
             result.t = t;
         }
+
+        t += max(dist / kr, MIN_DIST);
     }
 
     return result;
@@ -161,6 +255,5 @@ fn frag_main(@location(0) fs_UV : vec2<f32>) -> @location(0) vec4<f32>
 
     // outColor = vec4((uniforms.right), 1);
 
-    var col : vec4<f32> = textureSample(myTexture, mySampler, fs_UV);
     return outColor;
 }
