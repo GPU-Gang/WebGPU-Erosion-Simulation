@@ -1,4 +1,4 @@
-import { Mat4, mat4, vec2, Vec2, vec3, vec4 } from 'wgpu-matrix';
+import { Mat4, mat4, vec2, Vec2, Vec3, vec3, vec4 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 import Camera from '../camera';
 import erosionWGSL from './erosion.wgsl';
@@ -25,6 +25,37 @@ function setupGeometry(device: GPUDevice)
 
   terrainQuad = new TerrainQuad(vec4.create(0,0,0,0), vec3.create(1,1,1));
   terrainQuad.create(device);
+}
+
+function rayPlaneIntersection(p: Vec3, rayOrigin: Vec3, rayDir: Vec3)
+{
+  // the plane of terrain quad is initially screen-facing so its normal is assumed to be the -ve Z axis i.e. facing the camera
+  let planeNormal = vec3.create(0,0,-1);
+  let t = vec3.dot(planeNormal,vec3.sub(terrainQuad.center, rayOrigin)) / vec3.dot(planeNormal, rayDir);
+  let interesection = vec3.add(rayOrigin, vec3.mulScalar(rayDir, t));
+  if(interesection[0] < -terrainQuad.scale[0] || interesection[0] > terrainQuad.scale[0] || 
+    interesection[1] < -terrainQuad.scale[1] || interesection[1] > terrainQuad.scale[1]) {
+      return [false, null];
+    }
+    return [true, interesection];
+}
+
+function rayCast(camera:Camera, canvas:HTMLCanvasElement, px:number, py:number)
+{
+    let uv_x = px/canvas.width;
+    let uv_y = py/canvas.height;
+    let aspectRatio = canvas.width/canvas.height;
+
+    const PI = 3.14159265358979323;
+    const FOVY = 45.0 * PI / 180.0;
+    let V = vec3.mulScalar(camera.up, Math.tan(FOVY * 0.5));
+    let H = vec3.mulScalar(camera.right, Math.tan(FOVY * 0.5) * aspectRatio);
+    let p = vec3.add(
+      vec3.add(camera.controls.target, vec3.mulScalar(H, uv_x)),
+      vec3.mulScalar(V, uv_y));
+
+    let rayDir = vec3.sub(p, camera.controls.target);
+    return vec3.normalize(rayDir);
 }
 
 function createRenderPipeline(device: GPUDevice, shaderText: string, presentationFormat: GPUTextureFormat)
