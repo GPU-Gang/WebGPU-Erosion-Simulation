@@ -40,7 +40,7 @@ fn vert_main(
 const PI : f32 = 3.14159265358979323;
 const FOVY : f32 = 45.0f * PI / 180.0;
 const MAX_ITERS : i32 = 256;
-const MIN_DIST : f32 = 0.00001f;
+const MIN_DIST : f32 = 0.01f;
 const MAX_DIST : f32 = 1000000.0f;
 const EPSILON : f32 = MIN_DIST;
 const heightRange : vec2<f32> = vec2(0, 1);       // hardcoded range for now
@@ -268,7 +268,8 @@ fn computeNormal(p: vec3<f32>, eps: vec2<f32>) -> vec3<f32>
 
 fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
 {
-    var n: vec3<f32> = computeNormal(p, (terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
+    // TODO: texture size should probably be higher when we get it from the CPU
+    var n: vec3<f32> = computeNormal(p, vec2(EPSILON));//(terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
 
 	// Terrain sides and bottom
 	if (abs(sdfBox2D(p.xz, terrain.lowerLeft, terrain.upperRight)) < EPSILON
@@ -277,18 +278,18 @@ fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
         return vec4(0.3f, 0.29f, 0.31f, 1.0f);
     }
 	
-    var shadingMode: i32 = 1;       // hardcoded
+    var shadingMode: i32 = 0;       // hardcoded
 
 	// Terrain interior
-	if (shadingMode == 0)
+	if (shadingMode == 0)   // normals
 	{
         // TODO: find a way to optimise this non-uniformity nonsense
 		// var n: vec3<f32> = computeNormal(p, (terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
 		return vec4(0.2 * (vec3(3.0) + 2.0 * n.xyz), 1.0);
 	}
-	else if (shadingMode == 1)
+	else if (shadingMode == 1)  // lambertian
 	{
-		var lightDir: vec3<f32> = normalize(p - lightPos);
+		var lightDir: vec3<f32> = normalize(vec3(0,0,0) - lightPos); // terrain located at world 0,0,0
         var ambientTerm: f32 = 0.2;
         var lambertianTerm: vec3<f32> = vec3(max(dot(n, lightDir), 0.0f) + ambientTerm);
         
