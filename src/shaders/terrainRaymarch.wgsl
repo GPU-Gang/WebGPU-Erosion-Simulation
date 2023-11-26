@@ -152,7 +152,7 @@ fn frag_main(@location(0) fs_UV : vec2<f32>) -> @location(0) vec4<f32>
 {
     var ray : Ray = rayCast(fs_UV);
     var raymarchResult : RaymarchResult = raymarchTerrain(ray);
-    var outColor : vec4<f32> = vec4(0,0,0,1);
+    var outColor : vec4<f32> = vec4(0,0,0.2,1);
 
     if (raymarchResult.hit)
     {
