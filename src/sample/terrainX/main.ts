@@ -6,6 +6,7 @@ import fullscreenTexturedWGSL from '../../shaders/fullscreenTexturedQuad.wgsl';
 import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
+import { Console } from 'console';
 
 let currSourceTexIndex = 0;
 
@@ -110,18 +111,22 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
       mvp[8], mvp[9], mvp[10], mvp[11],
       mvp[12], mvp[13], mvp[14], mvp[15],
 
-      viewMatrix[0], viewMatrix[4], viewMatrix[8], // right
+      // 1,0,0,
+      camera.right[0], camera.right[1], camera.right[2], // right
 
       0, // padding
 
-      viewMatrix[1], viewMatrix[5], viewMatrix[9], // up
+      // 0,1,0,
+      camera.up[0], camera.up[1], camera.up[2], // up
 
       0, // padding
 
-      viewMatrix[2], viewMatrix[6], viewMatrix[10], // forward
+      // 0,0,1,
+      camera.forward[0], camera.forward[1], camera.forward[2], // forward
 
       0, // padding
 
+      // 0,0,-3,
       camera.getPosition()[0], camera.getPosition()[1], camera.getPosition()[2], // u_Eye
       
       0,  // padding
@@ -411,10 +416,19 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     if (!pageState.active) return;
 
     // update camera
-    // mat4.identity(camera.viewMatrix);
-    // mat4.translate(camera.viewMatrix, camera.target, camera.viewMatrix);
-    // mat4.rotateX(camera.viewMatrix, Math.PI * -0.2, camera.viewMatrix);
     camera.update();
+
+    // logging
+    // console.log("============== CAMERA VIEW MATRIX ==============");
+    // console.log("[" + camera.viewMatrix()[0] + "," + camera.viewMatrix()[4] + "," + camera.viewMatrix()[8] + "," + camera.viewMatrix()[3] + ",");
+    // console.log(camera.viewMatrix()[1] + "," + camera.viewMatrix()[5] + "," + camera.viewMatrix()[9] + "," + camera.viewMatrix()[7] + ",");
+    // console.log(camera.viewMatrix()[2] + "," + camera.viewMatrix()[6] + "," + camera.viewMatrix()[10] + "," + camera.viewMatrix()[11] + ",");
+    // // console.log(camera.viewMatrix()[12] + "," + camera.viewMatrix()[13] + "," + camera.viewMatrix()[14] + "," + camera.viewMatrix()[15] + "]");
+    // console.log("============== CAMERA POSITION ==============");
+    // console.log("[" + camera.getPosition()[0] + "," + camera.getPosition()[1] + "," + camera.getPosition()[2] + "]");
+    // // console.log("============== CAMERA UP ==============");
+    // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
+
 
     const commandEncoder = device.createCommandEncoder();
     //compute pass goes in the following stub
@@ -447,7 +461,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       terrainPassEncoder.setPipeline(terrainRenderPipeline);
       
       // Draw main quad (terrain)
-      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera);
+      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
       writeTerrainUniformBuffer(device, terrainUnifBuffer, vec2.create(simulationParams.lowerVertX, simulationParams.lowerVertY), vec2.create(simulationParams.upperVertX, simulationParams.upperVertY));
       terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
       terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
