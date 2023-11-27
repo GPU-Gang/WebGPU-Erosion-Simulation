@@ -7,6 +7,8 @@ struct SimulationParams {
   upperVertY : f32,
   cellDiagX  : f32,     // cell diagonal
   cellDiagY  : f32,
+  upliftX    : f32,
+  upliftY    : f32,
 }
 
 struct CustomBrushParams {
@@ -30,8 +32,9 @@ struct AABB {
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(3) var inUplift : texture_2d<f32>;
-@group(1) @binding(4) var inStream : texture_2d<f32>;
-@group(1) @binding(5) var outStream : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(5) var inStream : texture_2d<f32>;
+@group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
@@ -49,6 +52,9 @@ const k_h : f32 = 3.0;//2.0;
 const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
 const dt : f32 = 2.0;//1.0;
+
+const PAINT_STRENGTH : f32 = 10.0;
+const PAINT_RADIUS : f32 = 10.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -69,7 +75,16 @@ fn Height(p : vec2i) -> f32 {
 }
 
 fn UpliftAt(p : vec2i) -> f32 {
-    let color = textureLoad(inUplift, vec2u(p), 0);
+    var pf = vec2f(p);
+    var color = textureLoad(inUplift, vec2u(p), 0);    
+    if(simParams.upliftX != -1 && simParams.upliftY != -1) {
+      var dist = distance(vec2f(simParams.upliftX, simParams.upliftY), pf);
+      if(dist <= PAINT_RADIUS) {
+        var factor = 1.0 - dist / (PAINT_RADIUS * PAINT_RADIUS);
+        color.r += PAINT_STRENGTH * factor * factor * factor;
+      }
+    }
+    textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
     return color.r; // also greyscale?
 }
 
