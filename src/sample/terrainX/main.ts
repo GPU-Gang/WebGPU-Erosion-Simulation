@@ -13,6 +13,7 @@ let currSourceTexIndex = 0;
 let clicked = false;
 let clickX = 0;
 let clickY = 0;
+let upliftPainted = vec2.fromValues(-1, -1);
 
 // Geometries
 let inputHeightmapDisplayQuad: Quad;
@@ -27,7 +28,7 @@ function setupGeometry(device: GPUDevice)
   terrainQuad.create(device);
 }
 
-function rayPlaneIntersection(p: Vec3, rayOrigin: Vec3, rayDir: Vec3)
+function rayPlaneIntersection(rayOrigin: Vec3, rayDir: Vec3)
 {
   // the plane of terrain quad is initially screen-facing so its normal is assumed to be the -ve Z axis i.e. facing the camera
   let planeNormal = vec3.create(0,0,-1);
@@ -43,18 +44,19 @@ function rayPlaneIntersection(p: Vec3, rayOrigin: Vec3, rayDir: Vec3)
 function rayCast(camera:Camera, canvas:HTMLCanvasElement, px:number, py:number)
 {
     let uv_x = px/canvas.width;
-    let uv_y = py/canvas.height;
+    let uv_y = 1.0 - py/canvas.height;
+    console.log("ux:", uv_x);
+    console.log("uy:", uv_y);
     let aspectRatio = canvas.width/canvas.height;
 
     const PI = 3.14159265358979323;
     const FOVY = 45.0 * PI / 180.0;
     let V = vec3.mulScalar(camera.up, Math.tan(FOVY * 0.5));
     let H = vec3.mulScalar(camera.right, Math.tan(FOVY * 0.5) * aspectRatio);
-    let p = vec3.add(
-      vec3.add(camera.controls.target, vec3.mulScalar(H, uv_x)),
-      vec3.mulScalar(V, uv_y));
-
-    let rayDir = vec3.sub(p, camera.controls.target);
+    let p = vec3.add(vec3.add(camera.getPosition(),camera.forward), vec3.mulScalar(H, uv_x));
+    vec3.add(p, vec3.mulScalar(V, uv_y), p);
+    
+    let rayDir = vec3.sub(p, camera.getPosition());
     return vec3.normalize(rayDir);
 }
 
@@ -368,6 +370,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     4 + 4 +         // image resolution: nx x ny
     2 * 4 * 2 +     // lower and upper vertices of a 2D box
     2 * 4 +         // cell diagonal vec2<f32>
+    2 * 4 +         // uplift painted x & y
     0;
   const simUnifBuffer = device.createBuffer({
     size: unifBufferSize,
@@ -458,6 +461,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         terrainParams.lowerVertX, terrainParams.lowerVertY,
         terrainParams.upperVertX, terrainParams.upperVertY,
         terrainParams.cellDiagX, terrainParams.cellDiagY,
+        upliftPainted[0], upliftPainted[1],
     ])
   );
 
@@ -466,10 +470,49 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     if (!pageState.active) return;
 
     if(clicked) {
-      console.log("Control + Left Click perceived");
-      console.log(clickX);
-      console.log(clickY);
+      // console.log("Control + Left Click perceived");
+      // console.log(clickX);
+      // console.log(clickY);
       clicked = false;
+      let ray = rayCast(camera, canvas, clickX, clickY); //this ray is in world coordinates
+      
+      //terrain quad is already in screen space, so we transform our ray to be in screen space too
+      let transformedRayOrigin = vec4.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2], 1.0);
+      let transformedRayDirection = vec4.create(ray[0], ray[1], ray[2], 0.0);
+
+      let mvp = mat4.identity();
+      mat4.multiply(camera.viewMatrix(), terrainQuad.getModelMatrix(), mvp);
+      mat4.multiply(camera.projectionMatrix, camera.viewMatrix(), mvp);
+
+      // model-view-proj transformation - unhomogenized screen space
+      vec4.transformMat4(transformedRayOrigin, mvp, transformedRayOrigin);
+      vec4.transformMat4(transformedRayDirection, mvp, transformedRayDirection);
+
+      console.log("Uw = ", transformedRayDirection[3]);
+
+      //perspective divide - homogenized screen space i.e. NDC [-1,1]
+      transformedRayOrigin = vec4.divScalar(transformedRayOrigin, transformedRayOrigin[3]);
+      transformedRayDirection = vec4.divScalar(transformedRayDirection, transformedRayDirection[3]);
+
+      console.log(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
+
+      transformedRayOrigin = vec3.fromValues(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
+      transformedRayDirection = vec3.fromValues(transformedRayDirection[0], transformedRayDirection[1], transformedRayDirection[2]);
+      const [doesRayIntersectPlane, intersectionPointInQuadSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
+
+      let px = -1, py = -1;
+      if(doesRayIntersectPlane) {
+        console.log("Ray hit!");        
+        px = Math.floor((intersectionPointInQuadSpace[0] + 1.0)/2.0 * canvas.width);
+        py = Math.floor((1.0 - intersectionPointInQuadSpace[1])/2.0 * canvas.height);
+        console.log("px: ", px);
+        console.log("py: ", py);
+      }
+      else {
+        console.log("alas....");
+      }
+      upliftPainted[0] = px;
+      upliftPainted[1] = py;
     }
     // update camera
     camera.update();

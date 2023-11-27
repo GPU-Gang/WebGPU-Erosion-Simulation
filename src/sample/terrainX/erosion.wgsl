@@ -7,6 +7,8 @@ struct SimulationParams {
   upperVertY : f32,
   cellDiagX  : f32,  // cell diagonal
   cellDiagY  : f32,
+  upliftX    : i32,
+  upliftY    : i32,
 }
 
 // Uniforms
@@ -51,7 +53,10 @@ fn Height(p : vec2i) -> f32 {
 }
 
 fn UpliftAt(p : vec2i) -> f32 {
-    let color = textureLoad(inUplift, vec2u(p), 0);
+    var color = textureLoad(inUplift, vec2u(p), 0);
+    if(p.x == simParams.upliftX && p.y == simParams.upliftY) {
+      color.r += 50.5;
+    }
     return color.r; // also greyscale?
 }
 
