@@ -260,10 +260,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const guiInputs = {
     heightfield: heightfields[0],
     uplift: uplifts[0],
+    useCustomBrush: true,
     customBrush: customBrushes[0],
     brushPosX: 256,
     brushPosY: 256,
-    // brushPosZ: 0.5, // up
     brushScale: 0.1,
     brushStrength: 0.1, 
   };
@@ -292,12 +292,12 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
   gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
+  gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
-  gui.add(guiInputs, 'brushPosX'); // optional numbers: min, max, step
-  gui.add(guiInputs, 'brushPosY');
-  // gui.add(guiInputs, 'brushPosZ', 0.0, 1.0);
-  gui.add(guiInputs, 'brushScale');
-  gui.add(guiInputs, 'brushStrength');
+  gui.add(guiInputs, 'brushPosX', 0, 1000); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushPosY', 0, 1000);
+  gui.add(guiInputs, 'brushScale', 0, 1);
+  gui.add(guiInputs, 'brushStrength', 0, 10);
 
   //////////////////////////////////////////////////////////////////////////////
   // WebGPU Context Setup
@@ -317,7 +317,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
   //code to perceive Ctrl + Mouse click begins here
-  let id;
+  // let id;
   canvas.addEventListener('mousedown', (e) => {
     if(e.ctrlKey && e.button == 0){   
       clicked = true;
@@ -457,14 +457,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     [imageBitmap.width, imageBitmap.height]
   );
   
+  // currUpliftTexture = upliftTextures[currSourceTexIndex]; // apparently this doesn't work but why?
   currUpliftTexture = createTextureFromImage(
     device,
     imageBitmap,
-    true,
+    true, // keep it as greyscale for now cuz this is not the actual buffer but just a one-time feed of input
     true,
     `uplift_${guiInputs.uplift}`
   );
-
   // pre-load all the uplift textures
   upliftTextureArr.push(currUpliftTexture);
   
@@ -655,6 +655,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     4 +             // brush scale
     4 +             // brush strength
     4 * 2 +         // brush texture resolution
+    4 +             // boolean useCustomBrush as an int
     0;
   const brushUnifBuffer = device.createBuffer({
     size: unifBrushBufferSize,
@@ -769,16 +770,19 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       console.log(`bind groups updated in frame()`);
     }
 
-    // update custom brush params
-    device.queue.writeBuffer(
-      brushUnifBuffer,
-      0,
-      new Float32Array([
-          guiInputs.brushPosX, guiInputs.brushPosY,
-          guiInputs.brushScale, guiInputs.brushStrength,
-          currBrushTexture.height, currBrushTexture.width,
-      ])
-    );
+    if (guiInputs.useCustomBrush) {
+      // update custom brush params
+      device.queue.writeBuffer(
+        brushUnifBuffer,
+        0,
+        new Float32Array([
+            guiInputs.brushPosX, guiInputs.brushPosY,
+            guiInputs.brushScale, guiInputs.brushStrength,
+            currBrushTexture.height, currBrushTexture.width,
+            1, //guiInputs.useCustomBrush=true
+        ])
+      );
+    }
 
     const commandEncoder = device.createCommandEncoder();
     //compute pass goes in the following stub

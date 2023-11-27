@@ -18,6 +18,7 @@ struct CustomBrushParams {
   brushStrength : f32,
   width         : i32,  // brush texture size
   height        : i32,
+  useCustomBrush: i32,  // boolean
   // TODO: rotation
 }
 
@@ -76,12 +77,20 @@ fn Height(p : vec2i) -> f32 {
 
 fn UpliftAt(p : vec2i) -> f32 {
     var pf = vec2f(p);
-    var color = textureLoad(inUplift, vec2u(p), 0);    
-    if(simParams.upliftX != -1 && simParams.upliftY != -1) {
-      var dist = distance(vec2f(simParams.upliftX, simParams.upliftY), pf);
-      if(dist <= PAINT_RADIUS) {
-        var factor = 1.0 - dist / (PAINT_RADIUS * PAINT_RADIUS);
-        color.r += PAINT_STRENGTH * factor * factor * factor;
+    var color = textureLoad(inUplift, vec2u(p), 0);
+    // color =     textureLoad(customBrush, vec2u(p), 0);
+    if (simParams.upliftX != -1 && simParams.upliftY != -1) {
+      if (customBrushParams.useCustomBrush == 1) {
+        //if (DrawBrush(p)) {
+          color.r += textureLoad(customBrush, vec2u(p), 0).r * customBrushParams.brushStrength;
+        //}
+      }
+      else {
+        var dist = distance(vec2f(simParams.upliftX, simParams.upliftY), pf);
+        if (dist <= PAINT_RADIUS) {
+          var factor = 1.0 - dist / (PAINT_RADIUS * PAINT_RADIUS);
+          color.r += PAINT_STRENGTH * factor * factor * factor;
+        }
       }
     }
     textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
@@ -229,9 +238,6 @@ fn main(
   var id : i32 = ToIndex1D(idX, idY);
   var p : vec2i = vec2i(idX, idY);
   var data : vec4f = Read(p);
-  if (DrawBrush(p)) {
-    data.z += textureLoad(customBrush, vec2u(p), 0).r * customBrushParams.brushStrength;
-  }
   var cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
 
   // Border nodes are fixed to zero (elevation and drainage)
