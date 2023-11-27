@@ -7,7 +7,7 @@ import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
-import { Console } from 'console';
+import { Console, log } from 'console';
 
 let currSourceTexIndex = 0;
 let clicked = false;
@@ -31,28 +31,32 @@ function setupGeometry(device: GPUDevice)
 function rayPlaneIntersection(rayOrigin: Vec3, rayDir: Vec3)
 {
   // the plane of terrain quad is initially screen-facing so its normal is assumed to be the -ve Z axis i.e. facing the camera
-  let planeNormal = vec3.create(0,0,-1);
-  let t = vec3.dot(planeNormal,vec3.sub(terrainQuad.center, rayOrigin)) / vec3.dot(planeNormal, rayDir);
+  let planeNormal = vec4.create(0,1,0,0);
+  //vec4.transformMat4(planeNormal, mat4.inverse(mat4.transpose(mvp)), planeNormal);
+  let c = vec4.create(0,0,0,0);//vec4.transformMat4(vec4.create(0,0,0,0), mat4.inverse(mvp));
+  let t = vec3.dot(planeNormal,vec3.sub(c, rayOrigin)) / vec3.dot(planeNormal, rayDir);
   let interesection = vec3.add(rayOrigin, vec3.mulScalar(rayDir, t));
-  if(interesection[0] < -terrainQuad.scale[0] || interesection[0] > terrainQuad.scale[0] || 
-    interesection[1] < -terrainQuad.scale[1] || interesection[1] > terrainQuad.scale[1]) {
+  if(t < 0 || interesection[0] < -5 || interesection[0] > 5 || interesection[2] < -5 || interesection[2] > 5) {
       return [false, null];
     }
     return [true, interesection];
 }
 
-function rayCast(camera:Camera, canvas:HTMLCanvasElement, px:number, py:number)
+function rayCast(camera:Camera, width:number, height:number, px:number, py:number)
 {
-    let uv_x = px/canvas.width;
-    let uv_y = 1.0 - py/canvas.height;
+    let uv_x =  2.0 * px/width - 1.0;
+    let uv_y =  2.0 * py/height - 1.0;
     console.log("ux:", uv_x);
     console.log("uy:", uv_y);
-    let aspectRatio = canvas.width/canvas.height;
+    let aspectRatio = width/height;
 
     const PI = 3.14159265358979323;
     const FOVY = 45.0 * PI / 180.0;
     let V = vec3.mulScalar(camera.up, Math.tan(FOVY * 0.5));
     let H = vec3.mulScalar(camera.right, Math.tan(FOVY * 0.5) * aspectRatio);
+    
+    //ref = cam.pos + cam.forward
+    //p = ref + H * ndc.x + V * ndc.y
     let p = vec3.add(vec3.add(camera.getPosition(),camera.forward), vec3.mulScalar(H, uv_x));
     vec3.add(p, vec3.mulScalar(V, uv_y), p);
     
@@ -200,24 +204,27 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const devicePixelRatio = window.devicePixelRatio;
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
+  console.log("canvas.clientWidth:", canvas.clientWidth);
+  console.log("canvas.clientHeight:", canvas.clientHeight);
+  console.log("devicePixelRatio:", devicePixelRatio);
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
   //code to perceive Ctrl + Mouse click begins here
   let id;
   canvas.addEventListener('mousedown', (e) => {
-    if(e.ctrlKey && e.button == 0){      
+    if(e.ctrlKey && e.button == 0){   
       clicked = true;
       clickX = e.offsetX;
       clickY = e.offsetY;
-      id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
-        clicked = true;
-      }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
+      // id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
+      //   clicked = true;
+      // }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
     }
   });
 
   //once mouse button is released, clicks should no longer be perceived
   canvas.addEventListener('mouseup', () => {  
-    clearInterval(id);   
+    // clearInterval(id);   
       clicked = false;
   });
 
@@ -314,17 +321,22 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   response = await fetch('assets/uplifts/lambda.png');
   imageBitmap = await createImageBitmap(await response.blob());
 
-  const upliftTexture = device.createTexture({
-    size: [srcWidth, srcHeight, 1], // assuming same resolution as heightmap
-    format: 'r8unorm', // greyscale can't be used with STORAGE_BINDING
-    usage:
-      GPUTextureUsage.TEXTURE_BINDING |
-      GPUTextureUsage.COPY_DST |
-      GPUTextureUsage.RENDER_ATTACHMENT,
+  
+  const upliftTextures = [0, 1].map(() => {
+    return device.createTexture({
+      size: [srcWidth, srcHeight, 1], // assuming same resolution as heightmap
+      format: 'rgba8unorm', // greyscale can't be used with STORAGE_BINDING
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.RENDER_ATTACHMENT,
+    });
   });
+
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
-    { texture: upliftTexture },
+    { texture: upliftTextures[currSourceTexIndex] },
     [imageBitmap.width, imageBitmap.height]
   );
 
@@ -405,14 +417,18 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       },
       {
         binding: 3,
-        resource: upliftTexture.createView(),
+        resource: upliftTextures[0].createView(),
       },
       {
         binding: 4,
-        resource: streamTextures[0].createView(),
+        resource: upliftTextures[1].createView(),
       },
       {
         binding: 5,
+        resource: streamTextures[0].createView(),
+      },
+      {
+        binding: 6,
         resource: streamTextures[1].createView(),
       },
     ],
@@ -432,14 +448,18 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       },
       {
         binding: 3,
-        resource: upliftTexture.createView(),
+        resource: upliftTextures[1].createView(),
       },
       {
         binding: 4,
-        resource: streamTextures[1].createView(),
+        resource: upliftTextures[0].createView(),
       },
       {
         binding: 5,
+        resource: streamTextures[1].createView(),
+      },
+      {
+        binding: 6,
         resource: streamTextures[0].createView(),
       },
     ],
@@ -451,60 +471,43 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
-  const terrainParams: TerrainParams = new TerrainParams();
-
-  device.queue.writeBuffer(
-    simUnifBuffer,
-    0,
-    new Float32Array([
-        terrainParams.nx, terrainParams.ny,
-        terrainParams.lowerVertX, terrainParams.lowerVertY,
-        terrainParams.upperVertX, terrainParams.upperVertY,
-        terrainParams.cellDiagX, terrainParams.cellDiagY,
-        upliftPainted[0], upliftPainted[1],
-    ])
-  );
+  const terrainParams: TerrainParams = new TerrainParams();  
 
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
 
     if(clicked) {
-      // console.log("Control + Left Click perceived");
-      // console.log(clickX);
-      // console.log(clickY);
-      clicked = false;
-      let ray = rayCast(camera, canvas, clickX, clickY); //this ray is in world coordinates
+
+      //clicked = false;
+      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
+      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height;
+      console.log(w);
+      console.log(h);
+      let ray = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
       
       //terrain quad is already in screen space, so we transform our ray to be in screen space too
       let transformedRayOrigin = vec4.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2], 1.0);
       let transformedRayDirection = vec4.create(ray[0], ray[1], ray[2], 0.0);
 
-      let mvp = mat4.identity();
-      mat4.multiply(camera.viewMatrix(), terrainQuad.getModelMatrix(), mvp);
-      mat4.multiply(camera.projectionMatrix, camera.viewMatrix(), mvp);
-
-      // model-view-proj transformation - unhomogenized screen space
-      vec4.transformMat4(transformedRayOrigin, mvp, transformedRayOrigin);
-      vec4.transformMat4(transformedRayDirection, mvp, transformedRayDirection);
-
-      console.log("Uw = ", transformedRayDirection[3]);
-
-      //perspective divide - homogenized screen space i.e. NDC [-1,1]
-      transformedRayOrigin = vec4.divScalar(transformedRayOrigin, transformedRayOrigin[3]);
-      transformedRayDirection = vec4.divScalar(transformedRayDirection, transformedRayDirection[3]);
-
-      console.log(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
+      let viewProj = mat4.multiply(camera.projectionMatrix, camera.viewMatrix());
 
       transformedRayOrigin = vec3.fromValues(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
       transformedRayDirection = vec3.fromValues(transformedRayDirection[0], transformedRayDirection[1], transformedRayDirection[2]);
-      const [doesRayIntersectPlane, intersectionPointInQuadSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
-
+            
+      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
       let px = -1, py = -1;
       if(doesRayIntersectPlane) {
-        console.log("Ray hit!");        
-        px = Math.floor((intersectionPointInQuadSpace[0] + 1.0)/2.0 * canvas.width);
-        py = Math.floor((1.0 - intersectionPointInQuadSpace[1])/2.0 * canvas.height);
+        console.log("Ray hit!");  
+        
+        let numerator = vec3.sub(
+          vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
+          vec3.create(-5,0,-5));       // lower left to current point
+	      let denom = vec3.sub(vec3.create(5,0,5), vec3.create(-5,0,-5));  // full range
+	      let uv = vec3.div(numerator, denom);    // remap the vec2 point to a 0->1 range
+        
+        px = Math.floor(uv[0]  * srcWidth);
+        py = Math.floor(uv[2] * srcHeight);
         console.log("px: ", px);
         console.log("py: ", py);
       }
@@ -514,8 +517,13 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       upliftPainted[0] = px;
       upliftPainted[1] = py;
     }
-    // update camera
-    camera.update();
+    else {
+      // update camera
+      camera.update();
+      upliftPainted[0] = -1;
+      upliftPainted[1] = -1;
+    }
+    
 
     // logging
     // console.log("============== CAMERA VIEW MATRIX ==============");
@@ -534,6 +542,19 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     {
       const computePass = commandEncoder.beginComputePass();
       computePass.setPipeline(erosionComputePipeline);
+
+      device.queue.writeBuffer(
+        simUnifBuffer,
+        0,
+        new Float32Array([
+            terrainParams.nx, terrainParams.ny,
+            terrainParams.lowerVertX, terrainParams.lowerVertY,
+            terrainParams.upperVertX, terrainParams.upperVertY,
+            terrainParams.cellDiagX, terrainParams.cellDiagY,
+            upliftPainted[0], upliftPainted[1],
+        ])
+      );
+
       computePass.setBindGroup(0, simulationConstants);
       computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
       computePass.dispatchWorkgroups(
