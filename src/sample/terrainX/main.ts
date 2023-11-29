@@ -241,7 +241,8 @@ const createTextureFromImage = (
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_DST |
       GPUTextureUsage.RENDER_ATTACHMENT | 
-      (!greyscale && GPUTextureUsage.STORAGE_BINDING),
+      (!greyscale && GPUTextureUsage.STORAGE_BINDING) |
+      (!greyscale && GPUTextureUsage.COPY_SRC),
   });
   enqueue && device.queue.copyExternalImageToTexture(
     { source: bitmap },
@@ -260,22 +261,20 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const guiInputs = {
     heightfield: heightfields[0],
     uplift: uplifts[0],
-    useCustomBrush: true,
+    eraseTerrain: false,
+    useCustomBrush: false,
     customBrush: customBrushes[0],
-    brushPosX: 256,
-    brushPosY: 256,
-    brushScale: 0.1,
-    brushStrength: 0.1, 
+    brushScale: 10,
+    brushStrength: 10, 
   };
 
   let inputsChanged = false;
-  // TODO: heightfield still problematic
-  // Trying to use the same resource multiple times in the same GPUComputePassEncoder (GPUCommandEncoder::beginComputePass()) in a combination of ways that the API doesn't like?
+  let hfChanged = false;
   const onChangeTextureHf = () => {
-    let temp = hfTextures[currSourceTexIndex];
-    hfTextures[currSourceTexIndex] = hfTextureArr[hfTextureAtlas[guiInputs.heightfield]];
-    inputsChanged = true;
-    console.log(`hf updated: ${temp.label}, ${hfTextures[currSourceTexIndex].label}`);
+    // let temp = hfTextures[currSourceTexIndex].label;
+    // hfTextures[currSourceTexIndex] = hfTextureArr[hfTextureAtlas[guiInputs.heightfield]];
+    hfChanged = true;
+    // console.log(`hf updated: ${temp}, ${hfTextures[currSourceTexIndex].label}`);
   };
 
   const onChangeTextureUplift = () => {
@@ -284,20 +283,17 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   };
 
   const onChangeTextureBrush = () => {
-    let temp = currBrushTexture;
     currBrushTexture = brushTextureArr[brushTextureAtlas[guiInputs.customBrush]];
     inputsChanged = true;
-    console.log(`brush updated: ${temp.label}, ${currBrushTexture.label}`);
   };
   
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
   gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
+  gui.add(guiInputs, 'eraseTerrain');
   gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
-  gui.add(guiInputs, 'brushPosX', 0, 1000); // optional numbers: min, max, step
-  gui.add(guiInputs, 'brushPosY', 0, 1000);
-  gui.add(guiInputs, 'brushScale', 0, 1);
-  gui.add(guiInputs, 'brushStrength', 0, 10);
+  gui.add(guiInputs, 'brushScale', 0, 100); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushStrength', 0, 100);
 
   //////////////////////////////////////////////////////////////////////////////
   // WebGPU Context Setup
@@ -562,7 +558,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     4 + 4 +         // image resolution: nx * ny
     2 * 4 * 2 +     // lower and upper vertices of a 2D box
     2 * 4 +         // cell diagonal vec2<f32>
-    2 * 4 +         // uplift painted x & y
     0;
   const simUnifBuffer = device.createBuffer({
     size: unifBufferSize,
@@ -649,13 +644,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   let computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
   let computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
 
-  // premade/custom brush
+  // custom brush
   const unifBrushBufferSize =
-    4 * 2 +         // 2d position
+    4 * 2 +         // 2d brush position
     4 +             // brush scale
     4 +             // brush strength
     4 * 2 +         // brush texture resolution
     4 +             // boolean useCustomBrush as an int
+    4 +             // boolean eraseTerrain as an int
     0;
   const brushUnifBuffer = device.createBuffer({
     size: unifBrushBufferSize,
@@ -693,10 +689,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     if(clicked) {
 
       //clicked = false;
-      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
-      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height;
-      console.log(w);
-      console.log(h);
+      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width; // = canvas.clientWidth = 600
+      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height; // = canvas.clientHeight = 600
       let ray = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
       
       //terrain quad is already in screen space, so we transform our ray to be in screen space too
@@ -749,14 +743,35 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     // // console.log("============== CAMERA UP ==============");
     // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
 
+    const commandEncoder = device.createCommandEncoder();
     // update compute bindGroups if input textures changed
-    if (inputsChanged) {
-      computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
-      computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
+    if (inputsChanged || hfChanged) {
+      if (hfChanged) {
+        // hfTextures[currSourceTexIndex] = hfTextureArr[hfTextureAtlas[guiInputs.heightfield]];
+        console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
+        console.log('old: ' + hfTextures[currSourceTexIndex].label);
+        commandEncoder.copyTextureToTexture(
+          {
+            texture: hfTextureArr[hfTextureAtlas[guiInputs.heightfield]], // source
+          },
+          {
+            texture: hfTextures[currSourceTexIndex], // destination
+          },
+          {
+            width: srcWidth,
+            height: srcHeight,
+          },
+        );
+        console.log('new: ' + hfTextures[currSourceTexIndex].label);
+        hfChanged = false;          
+      }
+
+      // computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
+      // computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
       computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
 
-      computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
+      // computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
+      // computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
       computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
       
       computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
@@ -767,29 +782,15 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       brushProperties = device.createBindGroup(brushBindGroupDescriptor);
 
       inputsChanged = false;
-      console.log(`bind groups updated in frame()`);
+      // console.log(`bind groups updated in frame()`);
     }
 
-    if (guiInputs.useCustomBrush) {
-      // update custom brush params
-      device.queue.writeBuffer(
-        brushUnifBuffer,
-        0,
-        new Float32Array([
-            guiInputs.brushPosX, guiInputs.brushPosY,
-            guiInputs.brushScale, guiInputs.brushStrength,
-            currBrushTexture.height, currBrushTexture.width,
-            1, //guiInputs.useCustomBrush=true
-        ])
-      );
-    }
-
-    const commandEncoder = device.createCommandEncoder();
     //compute pass goes in the following stub
     {
       const computePass = commandEncoder.beginComputePass();
       computePass.setPipeline(erosionComputePipeline);
 
+      // terrain parameters
       device.queue.writeBuffer(
         simUnifBuffer,
         0,
@@ -798,7 +799,22 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
             terrainParams.lowerVertX, terrainParams.lowerVertY,
             terrainParams.upperVertX, terrainParams.upperVertY,
             terrainParams.cellDiagX, terrainParams.cellDiagY,
+        ])
+      );
+
+      // update brush params
+      let erase = 0;
+      let useCustom = 0;
+      if (guiInputs.eraseTerrain) { erase = 1; }
+      if (guiInputs.useCustomBrush) { useCustom = 1; }
+      device.queue.writeBuffer(
+        brushUnifBuffer,
+        0,
+        new Float32Array([
             upliftPainted[0], upliftPainted[1],
+            guiInputs.brushScale, guiInputs.brushStrength,
+            currBrushTexture.height, currBrushTexture.width,
+            erase, useCustom,
         ])
       );
 

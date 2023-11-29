@@ -7,8 +7,6 @@ struct SimulationParams {
   upperVertY : f32,
   cellDiagX  : f32,     // cell diagonal
   cellDiagY  : f32,
-  upliftX    : f32,
-  upliftY    : f32,
 }
 
 struct CustomBrushParams {
@@ -18,7 +16,8 @@ struct CustomBrushParams {
   brushStrength : f32,
   width         : i32,  // brush texture size
   height        : i32,
-  useCustomBrush: i32,  // boolean
+  erase         : f32,  // temp boolean to erase terrain
+  useCustomBrush: f32,  // boolean
   // TODO: rotation
 }
 
@@ -54,8 +53,8 @@ const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
 const dt : f32 = 2.0;//1.0;
 
-const PAINT_STRENGTH : f32 = 10.0;
-const PAINT_RADIUS : f32 = 10.0;
+// const PAINT_STRENGTH : f32 = 10.0;
+// const PAINT_RADIUS : f32 = 10.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -76,20 +75,27 @@ fn Height(p : vec2i) -> f32 {
 }
 
 fn UpliftAt(p : vec2i) -> f32 {
+  var PAINT_STRENGTH = customBrushParams.brushStrength;
+  var PAINT_RADIUS = customBrushParams.brushScale;
+
     var pf = vec2f(p);
     var color = textureLoad(inUplift, vec2u(p), 0);
-    // color =     textureLoad(customBrush, vec2u(p), 0);
-    if (simParams.upliftX != -1 && simParams.upliftY != -1) {
+    if (customBrushParams.brushPosX != -1 && customBrushParams.brushPosY != -1) {
       if (customBrushParams.useCustomBrush == 1) {
-        //if (DrawBrush(p)) {
+        if (DrawBrush(p)) {
           color.r += textureLoad(customBrush, vec2u(p), 0).r * customBrushParams.brushStrength;
-        //}
+        }
       }
       else {
-        var dist = distance(vec2f(simParams.upliftX, simParams.upliftY), pf);
+        var dist = distance(vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY), pf);
         if (dist <= PAINT_RADIUS) {
-          var factor = 1.0 - dist / (PAINT_RADIUS * PAINT_RADIUS);
-          color.r += PAINT_STRENGTH * factor * factor * factor;
+          var factor = 1.0 - dist * dist / (PAINT_RADIUS * PAINT_RADIUS);
+          if (customBrushParams.erase == 1) {
+            color.r -= PAINT_STRENGTH * factor * factor * factor;
+          }
+          else {
+            color.r += PAINT_STRENGTH * factor * factor * factor;
+          }
         }
       }
     }
