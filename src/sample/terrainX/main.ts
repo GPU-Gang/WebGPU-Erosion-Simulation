@@ -271,10 +271,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   let inputsChanged = false;
   let hfChanged = false;
   const onChangeTextureHf = () => {
-    // let temp = hfTextures[currSourceTexIndex].label;
-    // hfTextures[currSourceTexIndex] = hfTextureArr[hfTextureAtlas[guiInputs.heightfield]];
     hfChanged = true;
-    // console.log(`hf updated: ${temp}, ${hfTextures[currSourceTexIndex].label}`);
   };
 
   const onChangeTextureUplift = () => {
@@ -402,13 +399,13 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
   
   // ping-pong buffers for 2d render
-  hfTextures = [0, 1].map(() => {
+  hfTextures = [0, 1].map((index) => {
     return createTextureFromImage(
       device,
       imageBitmap,
       false,
       false,
-      `hf_${guiInputs.heightfield}`
+      `hf_${guiInputs.heightfield}_${index}`
     );
   });
   device.queue.copyExternalImageToTexture(
@@ -416,10 +413,19 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     { texture: hfTextures[currSourceTexIndex] },
     [srcWidth, srcHeight]
   );
-
-  // pre-load all the heightfield textures
-  hfTextureArr.push(hfTextures[currSourceTexIndex]);
   
+  // pre-load all the uplift textures
+  // CAN'T directly push hfTextures[0] into hfTextureArr as the 1st element because .push() saves a pointer to the original obejct and it'll cause resource conflict in copyTextureToTexture call
+  hfTextureArr.push(
+    createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      true,
+      `hf_${guiInputs.heightfield}`
+    )
+  );
+
   let nextTex = heightfields[1];
   response = await fetch(hfDir + nextTex + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
@@ -437,13 +443,13 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   response = await fetch(upliftDir + guiInputs.uplift + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
 
-  const upliftTextures = [0, 1].map(() => {
+  const upliftTextures = [0, 1].map((index) => {
     return createTextureFromImage(
       device,
       imageBitmap,
       false,
       false,
-      `uplift_${guiInputs.uplift}`
+      `uplift_${guiInputs.uplift}_${index}`
     );
   });
 
@@ -453,7 +459,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     [imageBitmap.width, imageBitmap.height]
   );
   
-  // currUpliftTexture = upliftTextures[currSourceTexIndex]; // apparently this doesn't work but why?
+  // pre-load all the uplift textures
   currUpliftTexture = createTextureFromImage(
     device,
     imageBitmap,
@@ -461,7 +467,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     true,
     `uplift_${guiInputs.uplift}`
   );
-  // pre-load all the uplift textures
   upliftTextureArr.push(currUpliftTexture);
   
   nextTex = uplifts[1];
@@ -730,7 +735,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       upliftPainted[0] = -1;
       upliftPainted[1] = -1;
     }
-    
 
     // logging
     // console.log("============== CAMERA VIEW MATRIX ==============");
@@ -744,12 +748,13 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
 
     const commandEncoder = device.createCommandEncoder();
+    
     // update compute bindGroups if input textures changed
     if (inputsChanged || hfChanged) {
-      if (hfChanged) {
-        // hfTextures[currSourceTexIndex] = hfTextureArr[hfTextureAtlas[guiInputs.heightfield]];
-        console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
-        console.log('old: ' + hfTextures[currSourceTexIndex].label);
+      if (hfChanged) {      
+        // console.log('currSourceTexIndex: ' +currSourceTexIndex);
+        // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
+        // console.log('old: ' + hfTextures[currSourceTexIndex].label);
         commandEncoder.copyTextureToTexture(
           {
             texture: hfTextureArr[hfTextureAtlas[guiInputs.heightfield]], // source
@@ -762,16 +767,16 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
             height: srcHeight,
           },
         );
-        console.log('new: ' + hfTextures[currSourceTexIndex].label);
+        // console.log('new: ' + hfTextures[currSourceTexIndex].label);
         hfChanged = false;          
       }
 
-      // computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
-      // computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
+      computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
+      computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
       computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
 
-      // computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
-      // computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
+      computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
+      computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
       computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
       
       computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
@@ -782,7 +787,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       brushProperties = device.createBindGroup(brushBindGroupDescriptor);
 
       inputsChanged = false;
-      // console.log(`bind groups updated in frame()`);
     }
 
     //compute pass goes in the following stub
