@@ -1,4 +1,4 @@
-import { Mat4, mat4, vec2, Vec2, vec3, vec4 } from 'wgpu-matrix';
+import { Mat4, mat4, vec2, Vec2, Vec3, vec3, vec4 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 import Camera from '../camera';
 import erosionWGSL from './erosion.wgsl';
@@ -7,9 +7,44 @@ import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
-import { Console } from 'console';
+import { Console, log } from 'console';
 
+// File paths
+const hfDir = 'assets/heightfields/';
+const upliftDir = 'assets/uplifts/';
+const streamPath = 'assets/stream/streamInput.png';
+// GUI dropdowns
+const heightfields = ['hfTest1', 'hfTest2'];
+const uplifts = ['alpes_noise', 'lambda'];
+const customBrushes = ['pattern1', 'pattern2', 'pattern3']; // currently only affects uplift map
+enum hfTextureAtlas {
+  hfTest1,
+  hfTest2,
+}
+enum upliftTextureAtlas {
+  alpes_noise,
+  lambda,
+}
+enum brushTextureAtlas {
+  pattern1,
+  pattern2,
+  pattern3,
+}
+// Pre-loaded textures
+let hfTextureArr : GPUTexture[] = [];
+let upliftTextureArr : GPUTexture[] = [];
+let brushTextureArr : GPUTexture[] = [];
+
+let hfTextures : GPUTexture[] = []; // ping-pong buffers for heightfields
+let currUpliftTexture : GPUTexture;
+let currBrushTexture : GPUTexture;
+
+// Ping-Pong texture index
 let currSourceTexIndex = 0;
+let clicked = false;
+let clickX = 0;
+let clickY = 0;
+let upliftPainted = vec2.fromValues(-1, -1);
 
 // Geometries
 let inputHeightmapDisplayQuad: Quad;
@@ -22,6 +57,42 @@ function setupGeometry(device: GPUDevice)
 
   terrainQuad = new TerrainQuad(vec4.create(0,0,0,0), vec3.create(1,1,1));
   terrainQuad.create(device);
+}
+
+function rayPlaneIntersection(rayOrigin: Vec3, rayDir: Vec3)
+{
+  // the plane of terrain quad is initially screen-facing so its normal is assumed to be the -ve Z axis i.e. facing the camera
+  let planeNormal = vec4.create(0,1,0,0);
+  //vec4.transformMat4(planeNormal, mat4.inverse(mat4.transpose(mvp)), planeNormal);
+  let c = vec4.create(0,0,0,0);//vec4.transformMat4(vec4.create(0,0,0,0), mat4.inverse(mvp));
+  let t = vec3.dot(planeNormal,vec3.sub(c, rayOrigin)) / vec3.dot(planeNormal, rayDir);
+  let interesection = vec3.add(rayOrigin, vec3.mulScalar(rayDir, t));
+  if(t < 0 || interesection[0] < -5 || interesection[0] > 5 || interesection[2] < -5 || interesection[2] > 5) {
+      return [false, null];
+    }
+    return [true, interesection];
+}
+
+function rayCast(camera:Camera, width:number, height:number, px:number, py:number)
+{
+    let uv_x =  2.0 * px/width - 1.0;
+    let uv_y =  2.0 * py/height - 1.0;
+    console.log("ux:", uv_x);
+    console.log("uy:", uv_y);
+    let aspectRatio = width/height;
+
+    const PI = 3.14159265358979323;
+    const FOVY = 45.0 * PI / 180.0;
+    let V = vec3.mulScalar(camera.up, Math.tan(FOVY * 0.5));
+    let H = vec3.mulScalar(camera.right, Math.tan(FOVY * 0.5) * aspectRatio);
+    
+    //ref = cam.pos + cam.forward
+    //p = ref + H * ndc.x + V * ndc.y
+    let p = vec3.add(vec3.add(camera.getPosition(),camera.forward), vec3.mulScalar(H, uv_x));
+    vec3.add(p, vec3.mulScalar(V, uv_y), p);
+    
+    let rayDir = vec3.sub(p, camera.getPosition());
+    return vec3.normalize(rayDir);
 }
 
 function createRenderPipeline(device: GPUDevice, shaderText: string, presentationFormat: GPUTextureFormat)
@@ -154,7 +225,76 @@ function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, 
   );
 }
 
+const createTextureFromImage = (
+  device: GPUDevice,
+  bitmap: ImageBitmap,
+  greyscale: boolean,
+  enqueue: boolean,
+  label? : string,
+) => {
+  const texture = device.createTexture({
+    label: label,
+    size: [bitmap.width, bitmap.height, 1],
+    format: greyscale ? 'r8unorm' : 'rgba8unorm',
+    mipLevelCount: 1,//numMipLevels,
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT | 
+      (!greyscale && GPUTextureUsage.STORAGE_BINDING) |
+      (!greyscale && GPUTextureUsage.COPY_SRC),
+  });
+  enqueue && device.queue.copyExternalImageToTexture(
+    { source: bitmap },
+    { texture: texture },
+    [bitmap.width, bitmap.height]
+  );
+  return texture;
+};
+
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
+  //////////////////////////////////////////////////////////////////////////////
+  // GUI Controls
+  //////////////////////////////////////////////////////////////////////////////
+  gui.width = 280;
+  
+  const guiInputs = {
+    heightfield: heightfields[0],
+    uplift: uplifts[0],
+    eraseTerrain: false,
+    useCustomBrush: false,
+    customBrush: customBrushes[0],
+    brushScale: 10,
+    brushStrength: 10, 
+  };
+
+  let inputsChanged = false;
+  let hfChanged = false;
+  const onChangeTextureHf = () => {
+    hfChanged = true;
+  };
+
+  const onChangeTextureUplift = () => {
+    currUpliftTexture = upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]];
+    inputsChanged = true;
+  };
+
+  const onChangeTextureBrush = () => {
+    currBrushTexture = brushTextureArr[brushTextureAtlas[guiInputs.customBrush]];
+    inputsChanged = true;
+  };
+  
+  gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
+  gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
+  gui.add(guiInputs, 'eraseTerrain');
+  gui.add(guiInputs, 'useCustomBrush');
+  gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
+  gui.add(guiInputs, 'brushScale', 0, 100); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushStrength', 0, 100);
+
+  //////////////////////////////////////////////////////////////////////////////
+  // WebGPU Context Setup
+  //////////////////////////////////////////////////////////////////////////////
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter.requestDevice();
 
@@ -164,7 +304,29 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const devicePixelRatio = window.devicePixelRatio;
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
+  console.log("canvas.clientWidth:", canvas.clientWidth);
+  console.log("canvas.clientHeight:", canvas.clientHeight);
+  console.log("devicePixelRatio:", devicePixelRatio);
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+  //code to perceive Ctrl + Mouse click begins here
+  // let id;
+  canvas.addEventListener('mousedown', (e) => {
+    if(e.ctrlKey && e.button == 0){   
+      clicked = true;
+      clickX = e.offsetX;
+      clickY = e.offsetY;
+      // id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
+      //   clicked = true;
+      // }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
+    }
+  });
+
+  //once mouse button is released, clicks should no longer be perceived
+  canvas.addEventListener('mouseup', () => {  
+    // clearInterval(id);   
+      clicked = false;
+  });
 
   context.configure({
     device,
@@ -232,49 +394,96 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   //////////////////////////////////////////////////////////////////////////////
 
   // heightmap
-  let response = await fetch('assets/heightfields/hfTest1.png');
+  let response = await fetch(hfDir + guiInputs.heightfield + '.png');
   let imageBitmap = await createImageBitmap(await response.blob());
   const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
-
+  
   // ping-pong buffers for 2d render
-  const hfTextures = [0, 1].map(() => {
-    return device.createTexture({
-      size: [srcWidth, srcHeight, 1],
-      mipLevelCount: 1,//numMipLevels,
-      format: 'rgba8unorm',
-      usage:
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.RENDER_ATTACHMENT,
-    });
+  hfTextures = [0, 1].map((index) => {
+    return createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      false,
+      `hf_${guiInputs.heightfield}_${index}`
+    );
   });
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
     { texture: hfTextures[currSourceTexIndex] },
     [srcWidth, srcHeight]
   );
+  
+  // pre-load all the uplift textures
+  // CAN'T directly push hfTextures[0] into hfTextureArr as the 1st element because .push() saves a pointer to the original obejct and it'll cause resource conflict in copyTextureToTexture call
+  hfTextureArr.push(
+    createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      true,
+      `hf_${guiInputs.heightfield}`
+    )
+  );
 
-  // uplift texture
-  response = await fetch('assets/uplifts/lambda.png');
+  let nextTex = heightfields[1];
+  response = await fetch(hfDir + nextTex + '.png');
+  imageBitmap = await createImageBitmap(await response.blob());
+  hfTextureArr.push(
+    createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      true,
+      `hf_${nextTex}`
+    )
+  );
+
+  // uplift
+  response = await fetch(upliftDir + guiInputs.uplift + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
 
-  const upliftTexture = device.createTexture({
-    size: [srcWidth, srcHeight, 1], // assuming same resolution as heightmap
-    format: 'r8unorm', // greyscale can't be used with STORAGE_BINDING
-    usage:
-      GPUTextureUsage.TEXTURE_BINDING |
-      GPUTextureUsage.COPY_DST |
-      GPUTextureUsage.RENDER_ATTACHMENT,
+  const upliftTextures = [0, 1].map((index) => {
+    return createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      false,
+      `uplift_${guiInputs.uplift}_${index}`
+    );
   });
+
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
-    { texture: upliftTexture },
+    { texture: upliftTextures[currSourceTexIndex] },
     [imageBitmap.width, imageBitmap.height]
+  );
+  
+  // pre-load all the uplift textures
+  currUpliftTexture = createTextureFromImage(
+    device,
+    imageBitmap,
+    true, // keep it as greyscale for now cuz this is not the actual buffer but just a one-time feed of input
+    true,
+    `uplift_${guiInputs.uplift}`
+  );
+  upliftTextureArr.push(currUpliftTexture);
+  
+  nextTex = uplifts[1];
+  response = await fetch(upliftDir + nextTex + '.png');
+  imageBitmap = await createImageBitmap(await response.blob());
+  upliftTextureArr.push(
+    createTextureFromImage(
+      device,
+      imageBitmap,
+      true,
+      true,
+      `uplift_${nextTex}`
+    )
   );
 
   // stream area map
-  response = await fetch('assets/stream/streamInput.png');
+  response = await fetch(streamPath);
   imageBitmap = await createImageBitmap(await response.blob());
 
   // ping-pong buffers for fluvial calculation
@@ -295,6 +504,45 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     [srcWidth, srcHeight]
   );
 
+  // custom brush texture
+  response = await fetch(upliftDir + guiInputs.customBrush + '.png');
+  imageBitmap = await createImageBitmap(await response.blob());
+  currBrushTexture = createTextureFromImage(
+    device,
+    imageBitmap,
+    false,
+    true,
+    `brush_${guiInputs.customBrush}`
+  );
+
+  // brush 0
+  brushTextureArr.push(currBrushTexture);
+  // brush 1
+  nextTex = customBrushes[1];
+  response = await fetch(upliftDir + nextTex + '.png');
+  imageBitmap = await createImageBitmap(await response.blob());
+  brushTextureArr.push(
+    createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      true,
+      `brush_${nextTex}`
+    )
+  );
+  // brush 2
+  nextTex = customBrushes[2];
+  response = await fetch(upliftDir + nextTex + '.png');
+  imageBitmap = await createImageBitmap(await response.blob());
+  brushTextureArr.push(
+    createTextureFromImage(
+      device,
+      imageBitmap,
+      false,
+      true,
+      `brush_${nextTex}`
+    )
+  );
 
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
@@ -312,7 +560,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   
   // simulation parameters
   const unifBufferSize =
-    4 + 4 +         // image resolution: nx x ny
+    4 + 4 +         // image resolution: nx * ny
     2 * 4 * 2 +     // lower and upper vertices of a 2D box
     2 * 4 +         // cell diagonal vec2<f32>
     0;
@@ -335,8 +583,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   });
 
   // input/output textures
-  const computeBindGroup0 = device.createBindGroup({
-    label: "compute bind group 0",
+  const computeBindGroupDescriptor0: GPUBindGroupDescriptor = {
+    label: "compute bind group descriptor 0",
     layout: erosionComputePipeline.getBindGroupLayout(1),
     entries: [
       {
@@ -349,21 +597,25 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       },
       {
         binding: 3,
-        resource: upliftTexture.createView(),
+        resource: upliftTextures[0].createView(), // currUpliftTexture
       },
       {
         binding: 4,
-        resource: streamTextures[0].createView(),
+        resource: upliftTextures[1].createView(),
       },
       {
         binding: 5,
+        resource: streamTextures[0].createView(),
+      },
+      {
+        binding: 6,
         resource: streamTextures[1].createView(),
       },
     ],
-  });
+  };
 
-  const computeBindGroup1 = device.createBindGroup({
-    label: "compute bind group 1",
+  const computeBindGroupDescriptor1: GPUBindGroupDescriptor = {
+    label: "compute bind group descriptor 1",
     layout: erosionComputePipeline.getBindGroupLayout(1),
     entries: [
       {
@@ -376,44 +628,113 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       },
       {
         binding: 3,
-        resource: upliftTexture.createView(),
+        resource: upliftTextures[1].createView(), //currUpliftTexture
       },
       {
         binding: 4,
-        resource: streamTextures[1].createView(),
+        resource: upliftTextures[0].createView(),
       },
       {
         binding: 5,
+        resource: streamTextures[1].createView(),
+      },
+      {
+        binding: 6,
         resource: streamTextures[0].createView(),
       },
     ],
+  };
+  
+  let computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
+  let computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
+  let computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
+
+  // custom brush
+  const unifBrushBufferSize =
+    4 * 2 +         // 2d brush position
+    4 +             // brush scale
+    4 +             // brush strength
+    4 * 2 +         // brush texture resolution
+    4 +             // boolean useCustomBrush as an int
+    4 +             // boolean eraseTerrain as an int
+    0;
+  const brushUnifBuffer = device.createBuffer({
+    size: unifBrushBufferSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  const computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
+  const brushBindGroupDescriptor: GPUBindGroupDescriptor = {
+    label: "brush bind group descriptor",
+    layout: erosionComputePipeline.getBindGroupLayout(2),
+    entries: [
+      {
+        binding: 0,
+        resource: {
+            buffer: brushUnifBuffer,
+        },
+      },
+      {
+        binding: 1,
+        resource: currBrushTexture.createView(),
+      },
+    ],
+  };
+  let brushProperties = device.createBindGroup(brushBindGroupDescriptor);
 
   terrainQuad.createTerrainBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex], terrainUnifBuffer);
   inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
-  const terrainParams: TerrainParams = new TerrainParams();
-
-  device.queue.writeBuffer(
-    simUnifBuffer,
-    0,
-    new Float32Array([
-        terrainParams.nx, terrainParams.ny,
-        terrainParams.lowerVertX, terrainParams.lowerVertY,
-        terrainParams.upperVertX, terrainParams.upperVertY,
-        terrainParams.cellDiagX, terrainParams.cellDiagY,
-    ])
-  );
+  const terrainParams: TerrainParams = new TerrainParams();  
 
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
 
-    // update camera
-    camera.update();
+    if(clicked) {
+
+      //clicked = false;
+      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width; // = canvas.clientWidth = 600
+      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height; // = canvas.clientHeight = 600
+      let ray = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
+      
+      //terrain quad is already in screen space, so we transform our ray to be in screen space too
+      let transformedRayOrigin = vec4.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2], 1.0);
+      let transformedRayDirection = vec4.create(ray[0], ray[1], ray[2], 0.0);
+
+      let viewProj = mat4.multiply(camera.projectionMatrix, camera.viewMatrix());
+
+      transformedRayOrigin = vec3.fromValues(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
+      transformedRayDirection = vec3.fromValues(transformedRayDirection[0], transformedRayDirection[1], transformedRayDirection[2]);
+            
+      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
+      let px = -1, py = -1;
+      if(doesRayIntersectPlane) {
+        console.log("Ray hit!");  
+        
+        let numerator = vec3.sub(
+          vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
+          vec3.create(-5,0,-5));       // lower left to current point
+	      let denom = vec3.sub(vec3.create(5,0,5), vec3.create(-5,0,-5));  // full range
+	      let uv = vec3.div(numerator, denom);    // remap the vec2 point to a 0->1 range
+        
+        px = Math.floor(uv[0]  * srcWidth);
+        py = Math.floor(uv[2] * srcHeight);
+        console.log("px: ", px);
+        console.log("py: ", py);
+      }
+      else {
+        console.log("alas....");
+      }
+      upliftPainted[0] = px;
+      upliftPainted[1] = py;
+    }
+    else {
+      // update camera
+      camera.update();
+      upliftPainted[0] = -1;
+      upliftPainted[1] = -1;
+    }
 
     // logging
     // console.log("============== CAMERA VIEW MATRIX ==============");
@@ -426,14 +747,84 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     // // console.log("============== CAMERA UP ==============");
     // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
 
-
     const commandEncoder = device.createCommandEncoder();
+    
+    // update compute bindGroups if input textures changed
+    if (inputsChanged || hfChanged) {
+      if (hfChanged) {      
+        // console.log('currSourceTexIndex: ' +currSourceTexIndex);
+        // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
+        // console.log('old: ' + hfTextures[currSourceTexIndex].label);
+        commandEncoder.copyTextureToTexture(
+          {
+            texture: hfTextureArr[hfTextureAtlas[guiInputs.heightfield]], // source
+          },
+          {
+            texture: hfTextures[currSourceTexIndex], // destination
+          },
+          {
+            width: srcWidth,
+            height: srcHeight,
+          },
+        );
+        // console.log('new: ' + hfTextures[currSourceTexIndex].label);
+        hfChanged = false;          
+      }
+
+      computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
+      computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
+      computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
+
+      computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
+      computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
+      computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
+      
+      computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
+      computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
+      computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
+      
+      brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
+      brushProperties = device.createBindGroup(brushBindGroupDescriptor);
+
+      inputsChanged = false;
+    }
+
     //compute pass goes in the following stub
     {
       const computePass = commandEncoder.beginComputePass();
       computePass.setPipeline(erosionComputePipeline);
+
+      // terrain parameters
+      device.queue.writeBuffer(
+        simUnifBuffer,
+        0,
+        new Float32Array([
+            terrainParams.nx, terrainParams.ny,
+            terrainParams.lowerVertX, terrainParams.lowerVertY,
+            terrainParams.upperVertX, terrainParams.upperVertY,
+            terrainParams.cellDiagX, terrainParams.cellDiagY,
+        ])
+      );
+
+      // update brush params
+      let erase = 0;
+      let useCustom = 0;
+      if (guiInputs.eraseTerrain) { erase = 1; }
+      if (guiInputs.useCustomBrush) { useCustom = 1; }
+      device.queue.writeBuffer(
+        brushUnifBuffer,
+        0,
+        new Float32Array([
+            upliftPainted[0], upliftPainted[1],
+            guiInputs.brushScale, guiInputs.brushStrength,
+            currBrushTexture.height, currBrushTexture.width,
+            erase, useCustom,
+        ])
+      );
+
       computePass.setBindGroup(0, simulationConstants);
       computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
+      computePass.setBindGroup(2, brushProperties);
       computePass.dispatchWorkgroups(
         //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
         //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1

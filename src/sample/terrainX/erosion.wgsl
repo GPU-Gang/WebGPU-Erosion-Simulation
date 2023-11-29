@@ -1,12 +1,29 @@
 struct SimulationParams {
-  nx         : i32,    // array dimension
+  nx         : i32,     // array dimension
   ny         : i32,
-  lowerVertX : f32,  // lower and upper vertices of the box of the heightfield
+  lowerVertX : f32,     // lower and upper vertices of the box of the heightfield
   lowerVertY : f32,
   upperVertX : f32,
   upperVertY : f32,
-  cellDiagX  : f32,  // cell diagonal
+  cellDiagX  : f32,     // cell diagonal
   cellDiagY  : f32,
+}
+
+struct CustomBrushParams {
+  brushPosX     : f32,
+  brushPosY     : f32,
+  brushScale    : f32,
+  brushStrength : f32,
+  width         : i32,  // brush texture size
+  height        : i32,
+  erase         : f32,  // temp boolean to erase terrain
+  useCustomBrush: f32,  // boolean
+  // TODO: rotation
+}
+
+struct AABB {
+  lowerLeft   : vec2<f32>,
+  upperRight  : vec2<f32>,
 }
 
 // Uniforms
@@ -15,8 +32,12 @@ struct SimulationParams {
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(3) var inUplift : texture_2d<f32>;
-@group(1) @binding(4) var inStream : texture_2d<f32>;
-@group(1) @binding(5) var outStream : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(5) var inStream : texture_2d<f32>;
+@group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
+
+@group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
+@group(2) @binding(1) var customBrush : texture_2d<f32>;
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -31,6 +52,9 @@ const k_h : f32 = 3.0;//2.0;
 const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
 const dt : f32 = 2.0;//1.0;
+
+// const PAINT_STRENGTH : f32 = 10.0;
+// const PAINT_RADIUS : f32 = 10.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -51,7 +75,31 @@ fn Height(p : vec2i) -> f32 {
 }
 
 fn UpliftAt(p : vec2i) -> f32 {
-    let color = textureLoad(inUplift, vec2u(p), 0);
+  var PAINT_STRENGTH = customBrushParams.brushStrength;
+  var PAINT_RADIUS = customBrushParams.brushScale;
+
+    var pf = vec2f(p);
+    var color = textureLoad(inUplift, vec2u(p), 0);
+    if (customBrushParams.brushPosX != -1 && customBrushParams.brushPosY != -1) {
+      if (customBrushParams.useCustomBrush == 1) {
+        if (DrawBrush(p)) {
+          color.r += textureLoad(customBrush, vec2u(p), 0).r * customBrushParams.brushStrength;
+        }
+      }
+      else {
+        var dist = distance(vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY), pf);
+        if (dist <= PAINT_RADIUS) {
+          var factor = 1.0 - dist * dist / (PAINT_RADIUS * PAINT_RADIUS);
+          if (customBrushParams.erase == 1) {
+            color.r -= PAINT_STRENGTH * factor * factor * factor;
+          }
+          else {
+            color.r += PAINT_STRENGTH * factor * factor * factor;
+          }
+        }
+      }
+    }
+    textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
     return color.r; // also greyscale?
 }
 
@@ -158,6 +206,29 @@ fn Write(p : vec2i, data : vec4f) {
   textureStore(outStream, p, vec4f(data.y));
 }
 
+// Local Editing
+fn GetBrushAABB() -> AABB {
+  var center = vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY);
+  var halfWidth = f32(customBrushParams.width / 2);
+  var halfHeight = f32(customBrushParams.height / 2);
+  var scale = customBrushParams.brushScale;
+
+  var lowerLeft = vec2f(center.x - halfWidth * scale, center.y - halfHeight * scale);
+  var upperRight = vec2f(center.x + halfWidth * scale, center.y + halfHeight * scale);
+  return AABB(lowerLeft, upperRight);
+}
+
+fn ArrayPointBrush(p : vec2i) -> vec2f {
+  var aabb = GetBrushAABB();
+  let cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
+  return aabb.lowerLeft + vec2f(p) * cellDiag;
+}
+
+fn DrawBrush(p : vec2i) -> bool {
+  var aabb = GetBrushAABB();
+  return (aabb.lowerLeft.x < ArrayPointBrush(p).x && ArrayPointBrush(p).x < aabb.upperRight.x) &&
+         (aabb.lowerLeft.y < ArrayPointBrush(p).y && ArrayPointBrush(p).y < aabb.upperRight.y);
+}
 
 @compute @workgroup_size(64)
 fn main(

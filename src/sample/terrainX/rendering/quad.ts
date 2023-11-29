@@ -54,7 +54,7 @@ class Quad extends Drawable {
     this.createNormalBuffer();
     this.createUVBuffer();
 
-    console.log(`Created quad`);
+    // console.log(`Created quad`);
   }
 
   createBindGroup(pipeline: GPURenderPipeline, uniformBuffer: GPUBuffer,
