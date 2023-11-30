@@ -204,9 +204,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const devicePixelRatio = window.devicePixelRatio;
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
-  console.log("canvas.clientWidth:", canvas.clientWidth);
-  console.log("canvas.clientHeight:", canvas.clientHeight);
-  console.log("devicePixelRatio:", devicePixelRatio);
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
   //code to perceive Ctrl + Mouse click begins here
@@ -478,28 +475,16 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     if (!pageState.active) return;
 
     if(clicked) {
-
       //clicked = false;
       let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
       let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height;
-      console.log(w);
-      console.log(h);
-      let ray = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
-      
-      //terrain quad is already in screen space, so we transform our ray to be in screen space too
-      let transformedRayOrigin = vec4.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2], 1.0);
-      let transformedRayDirection = vec4.create(ray[0], ray[1], ray[2], 0.0);
 
-      let viewProj = mat4.multiply(camera.projectionMatrix, camera.viewMatrix());
-
-      transformedRayOrigin = vec3.fromValues(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
-      transformedRayDirection = vec3.fromValues(transformedRayDirection[0], transformedRayDirection[1], transformedRayDirection[2]);
+      let rayDir = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
+      let rayOrigin = vec3.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2]);
             
-      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
+      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(rayOrigin, rayDir);
       let px = -1, py = -1;
       if(doesRayIntersectPlane) {
-        console.log("Ray hit!");  
-        
         let numerator = vec3.sub(
           vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
           vec3.create(-5,0,-5));       // lower left to current point
@@ -508,11 +493,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         
         px = Math.floor(uv[0]  * srcWidth);
         py = Math.floor(uv[2] * srcHeight);
-        console.log("px: ", px);
-        console.log("py: ", py);
-      }
-      else {
-        console.log("alas....");
       }
       upliftPainted[0] = px;
       upliftPainted[1] = py;
