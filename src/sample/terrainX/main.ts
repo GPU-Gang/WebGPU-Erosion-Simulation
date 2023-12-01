@@ -77,8 +77,6 @@ function rayCast(camera:Camera, width:number, height:number, px:number, py:numbe
 {
     let uv_x =  2.0 * px/width - 1.0;
     let uv_y =  2.0 * py/height - 1.0;
-    console.log("ux:", uv_x);
-    console.log("uy:", uv_y);
     let aspectRatio = width/height;
 
     const PI = 3.14159265358979323;
@@ -304,27 +302,32 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const devicePixelRatio = window.devicePixelRatio;
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
-  console.log("canvas.clientWidth:", canvas.clientWidth);
-  console.log("canvas.clientHeight:", canvas.clientHeight);
-  console.log("devicePixelRatio:", devicePixelRatio);
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
-  //code to perceive Ctrl + Mouse click begins here
-  // let id;
+  //The following 2 event listeners mousedown and mousemove are to handle mouse-based terrain uplift painting
   canvas.addEventListener('mousedown', (e) => {
-    if(e.ctrlKey && e.button == 0){   
+    if(e.ctrlKey) {
+      //stop propagation is necessary so that the 3d-view-controls camera movements do not interfere while painting terrain
+      e.stopImmediatePropagation();
       clicked = true;
       clickX = e.offsetX;
       clickY = e.offsetY;
-      // id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
-      //   clicked = true;
-      // }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
     }
-  });
+  }, true);
+
+  canvas.addEventListener('mousemove', (e) => {
+    if(e.ctrlKey) {
+      //stopping propagation for the same reason as in mousedown event listener above
+      e.stopImmediatePropagation();
+      if(e.button == 0) {
+        clickX = e.offsetX;
+        clickY = e.offsetY;
+      }
+    }
+  }, true);
 
   //once mouse button is released, clicks should no longer be perceived
   canvas.addEventListener('mouseup', () => {  
-    // clearInterval(id);   
       clicked = false;
   });
 
@@ -692,26 +695,16 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     if (!pageState.active) return;
 
     if(clicked) {
-
       //clicked = false;
-      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width; // = canvas.clientWidth = 600
-      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height; // = canvas.clientHeight = 600
-      let ray = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
-      
-      //terrain quad is already in screen space, so we transform our ray to be in screen space too
-      let transformedRayOrigin = vec4.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2], 1.0);
-      let transformedRayDirection = vec4.create(ray[0], ray[1], ray[2], 0.0);
+      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
+      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height;
 
-      let viewProj = mat4.multiply(camera.projectionMatrix, camera.viewMatrix());
-
-      transformedRayOrigin = vec3.fromValues(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
-      transformedRayDirection = vec3.fromValues(transformedRayDirection[0], transformedRayDirection[1], transformedRayDirection[2]);
+      let rayDir = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
+      let rayOrigin = vec3.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2]);
             
-      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
+      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(rayOrigin, rayDir);
       let px = -1, py = -1;
       if(doesRayIntersectPlane) {
-        console.log("Ray hit!");  
-        
         let numerator = vec3.sub(
           vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
           vec3.create(-5,0,-5));       // lower left to current point
@@ -720,11 +713,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         
         px = Math.floor(uv[0]  * srcWidth);
         py = Math.floor(uv[2] * srcHeight);
-        console.log("px: ", px);
-        console.log("py: ", py);
-      }
-      else {
-        console.log("alas....");
       }
       upliftPainted[0] = px;
       upliftPainted[1] = py;
