@@ -77,8 +77,6 @@ function rayCast(camera:Camera, width:number, height:number, px:number, py:numbe
 {
     let uv_x =  2.0 * px/width - 1.0;
     let uv_y =  2.0 * py/height - 1.0;
-    console.log("ux:", uv_x);
-    console.log("uy:", uv_y);
     let aspectRatio = width/height;
 
     const PI = 3.14159265358979323;
@@ -306,22 +304,30 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   canvas.height = canvas.clientHeight * devicePixelRatio;
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
-  //code to perceive Ctrl + Mouse click begins here
-  // let id;
+  //The following 2 event listeners mousedown and mousemove are to handle mouse-based terrain uplift painting
   canvas.addEventListener('mousedown', (e) => {
-    if(e.ctrlKey && e.button == 0){   
+    if(e.ctrlKey) {
+      //stop propagation is necessary so that the 3d-view-controls camera movements do not interfere while painting terrain
+      e.stopImmediatePropagation();
       clicked = true;
       clickX = e.offsetX;
       clickY = e.offsetY;
-      // id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
-      //   clicked = true;
-      // }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
     }
-  });
+  }, true);
+
+  canvas.addEventListener('mousemove', (e) => {
+    if(e.ctrlKey) {
+      //stopping propagation for the same reason as in mousedown event listener above
+      e.stopImmediatePropagation();
+      if(e.button == 0) {
+        clickX = e.offsetX;
+        clickY = e.offsetY;
+      }
+    }
+  }, true);
 
   //once mouse button is released, clicks should no longer be perceived
   canvas.addEventListener('mouseup', () => {  
-    // clearInterval(id);   
       clicked = false;
   });
 
