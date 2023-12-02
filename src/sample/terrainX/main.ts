@@ -7,7 +7,7 @@ import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
-import { Console, log } from 'console';
+const Stats = require('stats-js');
 
 // File paths
 const hfDir = 'assets/heightfields/';
@@ -250,7 +250,7 @@ const createTextureFromImage = (
   return texture;
 };
 
-const init: SampleInit = async ({ canvas, pageState, gui }) => {
+const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   //////////////////////////////////////////////////////////////////////////////
   // GUI Controls
   //////////////////////////////////////////////////////////////////////////////
@@ -339,6 +339,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
   setupGeometry(device);
 
+  stats.showPanel(0); // 0 means show FPS by default.
+  
   // Setup camera
   const target = vec3.create(terrainQuad.center[0],  terrainQuad.center[1] + 2, terrainQuad.center[2]);
   const camera = new Camera(vec3.create(0, 0, -10), target);
@@ -688,15 +690,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
-  const terrainParams: TerrainParams = new TerrainParams();  
-
-  function frame() {
-    // Sample is no longer the active page.
-    if (!pageState.active) return;
-
-    if(clicked) {
-      //clicked = false;
-      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
+  const terrainParams: TerrainParams = new TerrainParams();
+  
+  function rayCastToPaintTerrainOnClick() {
+    let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
       let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height;
 
       let rayDir = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
@@ -705,10 +702,17 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(rayOrigin, rayDir);
       let px = -1, py = -1;
       if(doesRayIntersectPlane) {
+
+        // lower left to current point
         let numerator = vec3.sub(
-          vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
-          vec3.create(-5,0,-5));       // lower left to current point
-	      let denom = vec3.sub(vec3.create(5,0,5), vec3.create(-5,0,-5));  // full range
+          vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),          
+          vec3.create(terrainParams.lowerVertX, 0, terrainParams.lowerVertY));
+
+        // full range
+	      let denom = vec3.sub(
+          vec3.create(terrainParams.upperVertX, 0, terrainParams.upperVertY),
+          vec3.create(terrainParams.lowerVertX, 0, terrainParams.lowerVertY));
+          
 	      let uv = vec3.div(numerator, denom);    // remap the vec2 point to a 0->1 range
         
         px = Math.floor(uv[0]  * srcWidth);
@@ -716,6 +720,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       }
       upliftPainted[0] = px;
       upliftPainted[1] = py;
+  }
+
+  function frame() {
+    // Sample is no longer the active page.
+    if (!pageState.active) return;
+
+    if(clicked) {
+      rayCastToPaintTerrainOnClick();
     }
     else {
       // update camera
@@ -723,6 +735,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       upliftPainted[0] = -1;
       upliftPainted[1] = -1;
     }
+
+    stats.begin();
 
     // logging
     // console.log("============== CAMERA VIEW MATRIX ==============");
@@ -874,10 +888,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     }
 
     device.queue.submit([commandEncoder.finish()]);
-
+    
     requestAnimationFrame(frame);
+    stats.end();
   }
-  requestAnimationFrame(frame);
+  requestAnimationFrame(frame);  
 };
 
 const Terrain: () => JSX.Element = () =>
