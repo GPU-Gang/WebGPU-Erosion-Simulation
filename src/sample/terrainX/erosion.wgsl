@@ -82,9 +82,23 @@ fn UpliftAt(p : vec2i) -> f32 {
     var color = textureLoad(inUplift, vec2u(p), 0);
     if (customBrushParams.brushPosX != -1 && customBrushParams.brushPosY != -1) {
       if (customBrushParams.useCustomBrush == 1) {
-        if (DrawBrush(p)) {
-          color.r += textureLoad(customBrush, vec2u(p), 0).r * customBrushParams.brushStrength;
-        }
+        var bb = GetBrushAABB();
+        var minX = bb.lowerLeft.x;
+        var minY = bb.lowerLeft.y;
+        var maxX = bb.upperRight.x;
+        var maxY = bb.upperRight.y;
+        var withinBB = minX < pf.x && pf.x < maxX &&
+                       minY < pf.y && pf.y < maxY;
+        if (withinBB) {
+          var texCoord = vec2u(u32(pf.x - minX) / textureDimensions(customBrush).x,
+                               u32(pf.y - minY) / textureDimensions(customBrush).y);
+          if (customBrushParams.erase == 1) {
+            color.r -= textureLoad(customBrush, texCoord, 0).r * customBrushParams.brushStrength;
+          }
+          else {
+            color.r += textureLoad(customBrush, texCoord, 0).r * customBrushParams.brushStrength;
+          }
+        }        
       }
       else {
         var dist = distance(vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY), pf);
@@ -209,9 +223,9 @@ fn Write(p : vec2i, data : vec4f) {
 // Local Editing
 fn GetBrushAABB() -> AABB {
   var center = vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY);
-  var halfWidth = f32(customBrushParams.width / 2);
-  var halfHeight = f32(customBrushParams.height / 2);
-  var scale = customBrushParams.brushScale;
+  var halfWidth = f32(textureDimensions(customBrush).x / 2);
+  var halfHeight = f32(textureDimensions(customBrush).y / 2);
+  var scale = 1.0;//customBrushParams.brushScale;
 
   var lowerLeft = vec2f(center.x - halfWidth * scale, center.y - halfHeight * scale);
   var upperRight = vec2f(center.x + halfWidth * scale, center.y + halfHeight * scale);

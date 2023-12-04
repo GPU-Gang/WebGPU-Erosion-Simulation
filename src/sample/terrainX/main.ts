@@ -8,6 +8,8 @@ import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
 import { Console, log } from 'console';
+import {createTextureFromImageWithMip} from './mipmaps';
+
 
 // File paths
 const hfDir = 'assets/heightfields/';
@@ -16,7 +18,7 @@ const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
 const heightfields = ['hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
-const customBrushes = ['pattern1', 'pattern2', 'pattern3']; // currently only affects uplift map
+const customBrushes = ['pattern1_s', 'pattern2_s', 'pattern3_s'];
 enum hfTextureAtlas {
   hfTest1,
   hfTest2,
@@ -26,21 +28,20 @@ enum upliftTextureAtlas {
   lambda,
 }
 enum brushTextureAtlas {
-  pattern1,
-  pattern2,
-  pattern3,
+  pattern1_s,
+  pattern2_s,
+  pattern3_s,
 }
 // Pre-loaded textures
 let hfTextureArr : GPUTexture[] = [];
 let upliftTextureArr : GPUTexture[] = [];
 let brushTextureArr : GPUTexture[] = [];
 
-let hfTextures : GPUTexture[] = []; // ping-pong buffers for heightfields
+let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
 let currUpliftTexture : GPUTexture;
 let currBrushTexture : GPUTexture;
 
-// Ping-Pong texture index
-let currSourceTexIndex = 0;
+let currSourceTexIndex = 0; // Ping-Pong texture index
 let clicked = false;
 let clickX = 0;
 let clickY = 0;
@@ -77,8 +78,8 @@ function rayCast(camera:Camera, width:number, height:number, px:number, py:numbe
 {
     let uv_x =  2.0 * px/width - 1.0;
     let uv_y =  2.0 * py/height - 1.0;
-    console.log("ux:", uv_x);
-    console.log("uy:", uv_y);
+    // console.log("ux:", uv_x);
+    // console.log("uy:", uv_y);
     let aspectRatio = width/height;
 
     const PI = 3.14159265358979323;
@@ -505,7 +506,17 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   );
 
   // custom brush texture
-  response = await fetch(upliftDir + guiInputs.customBrush + '.png');
+  brushTextureArr = await Promise.all([
+    await createTextureFromImageWithMip(device,
+        `${upliftDir}${customBrushes[0]}.png`, {mips: true, flipY: false}),
+    await createTextureFromImageWithMip(device,
+        `${upliftDir}${customBrushes[1]}.png`, {mips: true, flipY: false}),
+    await createTextureFromImageWithMip(device,
+        `${upliftDir}${customBrushes[2]}.png`, {mips: true, flipY: false}),
+  ]);
+  currBrushTexture = brushTextureArr[0];
+
+  /*response = await fetch(upliftDir + guiInputs.customBrush + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
   currBrushTexture = createTextureFromImage(
     device,
@@ -543,7 +554,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       `brush_${nextTex}`
     )
   );
-
+*/
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
   //////////////////////////////////////////////////////////////////////////////
@@ -710,7 +721,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
       let px = -1, py = -1;
       if(doesRayIntersectPlane) {
-        console.log("Ray hit!");  
+        // console.log("Ray hit!");  
         
         let numerator = vec3.sub(
           vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
@@ -720,8 +731,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         
         px = Math.floor(uv[0]  * srcWidth);
         py = Math.floor(uv[2] * srcHeight);
-        console.log("px: ", px);
-        console.log("py: ", py);
+        // console.log("px: ", px);
+        // console.log("py: ", py);
       }
       else {
         console.log("alas....");
@@ -783,6 +794,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
       computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
       
+      console.log(currBrushTexture.label);
       brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
       brushProperties = device.createBindGroup(brushBindGroupDescriptor);
 
