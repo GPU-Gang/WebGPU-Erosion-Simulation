@@ -575,6 +575,21 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
 
+  const maxHeightUpliftAtomicBuffer = device.createBuffer({
+    size: 4 + 4,  // two floats
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+  });
+
+  const tmpHeightRangeBuffer = device.createBuffer({
+    size: srcHeight * srcWidth * 4,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+  });
+
+  const tmpUpliftRangeBuffer = device.createBuffer({
+    size: srcHeight * srcWidth * 4,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+  });
+
   const simulationConstants = device.createBindGroup({
       label: "simulation constants",
       layout: erosionComputePipeline.getBindGroupLayout(0),
@@ -585,6 +600,24 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
               buffer: simUnifBuffer,
           },
         },
+        {
+          binding: 1,
+          resource:{
+            buffer: maxHeightUpliftAtomicBuffer,
+          }
+        },
+        {
+          binding: 2,
+          resource:{
+            buffer: tmpHeightRangeBuffer,
+          }
+        },
+        {
+          binding: 3,
+          resource:{
+            buffer: tmpUpliftRangeBuffer,
+          }
+        }
       ],
   });
 
@@ -723,6 +756,40 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       upliftPainted[1] = py;
   }
 
+  device.queue.writeBuffer(
+    maxHeightUpliftAtomicBuffer,
+    0,
+    new Uint32Array([
+        terrainParams.heightRangeMax * 100, terrainParams.heightRangeMax * 100
+    ])
+  );
+
+  const tmpHeightRange = new Float32Array(srcWidth * srcHeight);
+  device.queue.writeBuffer(
+    tmpHeightRangeBuffer,
+    0,
+    tmpHeightRange,
+  );
+
+  device.queue.writeBuffer(
+    tmpUpliftRangeBuffer,
+    0,
+    tmpHeightRange,
+  );
+
+  // terrain parameters
+  device.queue.writeBuffer(
+    simUnifBuffer,
+    0,
+    new Float32Array([
+        terrainParams.nx, terrainParams.ny,
+        terrainParams.lowerVertX, terrainParams.lowerVertY,
+        terrainParams.upperVertX, terrainParams.upperVertY,
+        terrainParams.cellDiagX, terrainParams.cellDiagY,
+        terrainParams.heightRangeMax, terrainParams.heightRangeMax,
+    ])
+  );
+
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
@@ -796,19 +863,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     {
       const computePass = commandEncoder.beginComputePass();
       computePass.setPipeline(erosionComputePipeline);
-
-      // terrain parameters
-      device.queue.writeBuffer(
-        simUnifBuffer,
-        0,
-        new Float32Array([
-            terrainParams.nx, terrainParams.ny,
-            terrainParams.lowerVertX, terrainParams.lowerVertY,
-            terrainParams.upperVertX, terrainParams.upperVertY,
-            terrainParams.cellDiagX, terrainParams.cellDiagY,
-            terrainParams.heightRangeMax, terrainParams.heightRangeMax,
-        ])
-      );
 
       // update brush params
       let erase = 0;

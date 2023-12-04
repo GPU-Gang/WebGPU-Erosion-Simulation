@@ -28,8 +28,20 @@ struct AABB {
   upperRight  : vec2<f32>,
 }
 
+struct MaxAtomicBuffer{
+  height: atomic<u32>,
+  uplift: atomic<u32>
+}
+
+struct TempHeightRangeBuffer{
+  height: array<f32>
+}
+
 // Uniforms
 @group(0) @binding(0) var<storage, read_write> simParams : SimulationParams;
+@group(0) @binding(1) var<storage, read_write> maxPxAtomic: MaxAtomicBuffer;
+@group(0) @binding(2) var<storage, read_write> tmpHeightRange : TempHeightRangeBuffer;
+@group(0) @binding(3) var<storage, read_write> tmpUpliftRange : TempHeightRangeBuffer;
 
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
@@ -40,6 +52,7 @@ struct AABB {
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
+
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -101,7 +114,7 @@ fn UpliftAt(p : vec2i) -> f32 {
         }
       }
     }
-    textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
+    // textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
     return color.r; // also greyscale?
 }
 
@@ -206,6 +219,7 @@ fn Read(p : vec2i) -> vec4f {
 fn Write(p : vec2i, data : vec4f) {
   textureStore(outElevation, p, vec4f(data.x));
   textureStore(outStream, p, vec4f(data.y));
+  textureStore(outUplift, p, vec4f(data.z));
 }
 
 // Local Editing
@@ -232,61 +246,127 @@ fn DrawBrush(p : vec2i) -> bool {
          (aabb.lowerLeft.y < ArrayPointBrush(p).y && ArrayPointBrush(p).y < aabb.upperRight.y);
 }
 
+// Remap a value in one range to a different range
+fn remap(val: f32, oldMin: f32, oldMax: f32, newMin: f32, newMax: f32) -> f32
+{
+	return newMin + (newMax - newMin) * ((val - oldMin) / (oldMax - oldMin));
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn main(
   @builtin(workgroup_id) WorkGroupID : vec3<u32>,
   @builtin(local_invocation_id) LocalInvocationID : vec3<u32>,
-  @builtin(global_invocation_id) GlobalInvocationID : vec3<u32>
+  @builtin(global_invocation_id) GlobalInvocationID : vec3<u32>,
+  @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
   let idX = i32(GlobalInvocationID.x);
   let idY = i32(GlobalInvocationID.y);
-  if (idX < 0 || idY < 0) { return; }
-  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
-
+  // if (idX < 0 || idY < 0) { return; }
+  // if (idX >= simParams.nx || idY >= simParams.ny) { return; }
+  
   var id : i32 = ToIndex1D(idX, idY);
   var p : vec2i = vec2i(idX, idY);
   var data : vec4f = Read(p);
   var cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
 
+  var newHeight = 0.0;
   // Border nodes are fixed to zero (elevation and drainage)
   if (p.x == 0 || p.x == simParams.nx - 1 ||
       p.y == 0 || p.y == simParams.ny - 1) {
     data.x = 0.0;
     data.y = 1.0 * length(cellDiag);
-    Write(p, data);
-    return;
+    // Write(p, data);
+    // return;
+  }
+  else
+  {
+    // Flows accumulation at p
+    var waterIncr = WaterSteepest(p);
+
+    data.y = 1.0 * length(cellDiag);
+    data.y += waterIncr;
+
+    // Erosion at p (relative to steepest)
+    var d = GetFlowSteepest(p);
+    var receiver = Read(p + d);
+    var pSlope = abs(Slope(p + d, p));
+
+    var erosion = k * pow(data.y, p_sa) * pow(pSlope, p_sl);
+
+    newHeight = data.x;
+    if (erosionMode == 0) {           // Stream power
+      newHeight -= dt * (erosion);
+    }
+    else if (erosionMode == 1) {      // Stream power + Hillslope erosion (Laplacian)
+      newHeight -= dt * (erosion - k_h * Laplacian(p));
+    }
+    else if (erosionMode == 2) {      // Stream power + Hillslope erosion (Laplacian) + Debris flow
+      newHeight -= dt * (erosion - k_h * Laplacian(p) - k_d * pSlope);
+    }
+
+    newHeight = max(newHeight, receiver.x);
+    newHeight += dt * uplift * data.z;
   }
 
-  // Flows accumulation at p
-  var waterIncr = WaterSteepest(p);
+  var oldMaxHeight = f32(atomicLoad(&maxPxAtomic.height));
+  var oldMaxUplift = f32(atomicLoad(&maxPxAtomic.uplift));
 
-  data.y = 1.0 * length(cellDiag);
-  data.y += waterIncr;
+  tmpHeightRange.height[id] = newHeight;  // store this in the temp buffer
+  tmpUpliftRange.height[id] = data.z;
+  workgroupBarrier();   // synchronize threads within the workgroup first
 
-  // Erosion at p (relative to steepest)
-  var d = GetFlowSteepest(p);
-  var receiver = Read(p + d);
-  var pSlope = abs(Slope(p + d, p));
+  // Parallel reduction within workgroup
+  // reduce in x dim
+  for (var stride: i32 = 1;  stride < 8; stride <<= 1)
+  {
+    if (LocalInvocationID.x % (1u << u32(stride)) == 0)
+    {
+      var otherPx: vec2i = vec2i(idX + stride, idY);
+      var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
+      var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
 
-  var erosion = k * pow(data.y, p_sa) * pow(pSlope, p_sl);
-
-  var newHeight = data.x;
-  if (erosionMode == 0) {           // Stream power
-    newHeight -= dt * (erosion);
+      tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
+      tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
+    } 
   }
-  else if (erosionMode == 1) {      // Stream power + Hillslope erosion (Laplacian)
-    newHeight -= dt * (erosion - k_h * Laplacian(p));
-  }
-  else if (erosionMode == 2) {      // Stream power + Hillslope erosion (Laplacian) + Debris flow
-    newHeight -= dt * (erosion - k_h * Laplacian(p) - k_d * pSlope);
+  // now reduce in y dim
+  for (var stride: i32 = 1;  stride < 8; stride <<= 1)
+  {
+    if (LocalInvocationID.x == 0 && LocalInvocationID.y % (1u << u32(stride)) == 0)
+    {
+      var otherPx: vec2i = vec2i(idX, idY + stride);
+      var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
+      var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
+
+      tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
+      tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
+    } 
   }
 
-  newHeight = max(newHeight, receiver.x);
-  newHeight += dt * uplift * data.z;
+  workgroupBarrier(); // synchronize
 
-  data.x = newHeight;
+  if (LocalInvocationID.x == 0 && LocalInvocationID.y == 0)
+  {
+    atomicMax(&maxPxAtomic.height, u32(tmpHeightRange.height[id] * 100));
+    atomicMax(&maxPxAtomic.uplift, u32(tmpUpliftRange.height[id] * 100));
+  }
+
+  workgroupBarrier(); // synchronize
+
+  // Parallel reduction is done
+
+  // Adjust height range
+  if (GlobalInvocationID.x == 0 && GlobalInvocationID.y == 0)
+  {
+    simParams.heightRangeMin = 0.0;
+    simParams.heightRangeMax = max(f32(atomicLoad(&maxPxAtomic.height)), f32(atomicLoad(&maxPxAtomic.uplift))) / 100.0;
+  }
+  workgroupBarrier(); // synchronize
+  // Height range adjustment is done
+
+  data.x = remap(newHeight, 0, oldMaxHeight / 100.0, 0, simParams.heightRangeMax);
+  data.z = remap(data.z, 0, oldMaxUplift / 100.0, 0, f32(atomicLoad(&maxPxAtomic.uplift)) / 100.0);
+
+  // data.x = newHiehgt data.z = newUplift; --> + dt * strhel -->
   Write(p, data);
-
-  simParams.heightRangeMin = 0.0;
-  simParams.heightRangeMax = 1.0;
 }
