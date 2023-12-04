@@ -18,7 +18,7 @@ const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
 const heightfields = ['hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
-const customBrushes = ['pattern1_s', 'pattern2_s', 'pattern3_s'];
+const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
   hfTest1,
   hfTest2,
@@ -28,9 +28,9 @@ enum upliftTextureAtlas {
   lambda,
 }
 enum brushTextureAtlas {
-  pattern1_s,
-  pattern2_s,
-  pattern3_s,
+  pattern1_bg,
+  pattern2_bg,
+  pattern3_bg,
 }
 // Pre-loaded textures
 let hfTextureArr : GPUTexture[] = [];
@@ -265,24 +265,23 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     eraseTerrain: false,
     useCustomBrush: false,
     customBrush: customBrushes[0],
-    brushScale: 10,
-    brushStrength: 10, 
+    brushScale: 5,
+    brushStrength: 5, 
   };
 
-  let inputsChanged = false;
-  let hfChanged = false;
+  let inputsChanged = -1;
   const onChangeTextureHf = () => {
-    hfChanged = true;
+    inputsChanged = 0;
   };
 
   const onChangeTextureUplift = () => {
     currUpliftTexture = upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]];
-    inputsChanged = true;
+    inputsChanged = 1;
   };
 
   const onChangeTextureBrush = () => {
     currBrushTexture = brushTextureArr[brushTextureAtlas[guiInputs.customBrush]];
-    inputsChanged = true;
+    inputsChanged = 2;
   };
   
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
@@ -290,8 +289,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   gui.add(guiInputs, 'eraseTerrain');
   gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
-  gui.add(guiInputs, 'brushScale', 0, 100); // optional numbers: min, max, step
-  gui.add(guiInputs, 'brushStrength', 0, 100);
+  gui.add(guiInputs, 'brushScale', 0, 10, 1); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
 
   //////////////////////////////////////////////////////////////////////////////
   // WebGPU Context Setup
@@ -516,45 +515,6 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   ]);
   currBrushTexture = brushTextureArr[0];
 
-  /*response = await fetch(upliftDir + guiInputs.customBrush + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  currBrushTexture = createTextureFromImage(
-    device,
-    imageBitmap,
-    false,
-    true,
-    `brush_${guiInputs.customBrush}`
-  );
-
-  // brush 0
-  brushTextureArr.push(currBrushTexture);
-  // brush 1
-  nextTex = customBrushes[1];
-  response = await fetch(upliftDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  brushTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      true,
-      `brush_${nextTex}`
-    )
-  );
-  // brush 2
-  nextTex = customBrushes[2];
-  response = await fetch(upliftDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  brushTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      true,
-      `brush_${nextTex}`
-    )
-  );
-*/
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
   //////////////////////////////////////////////////////////////////////////////
@@ -674,6 +634,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
+  // const brushSampler = device.createSampler({
+  //   magFilter: 'nearest',
+  //   minFilter: 'nearest',
+  // });
+
   const brushBindGroupDescriptor: GPUBindGroupDescriptor = {
     label: "brush bind group descriptor",
     layout: erosionComputePipeline.getBindGroupLayout(2),
@@ -688,6 +653,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
         binding: 1,
         resource: currBrushTexture.createView(),
       },
+      // {
+      //   binding: 2,
+      //   resource: brushSampler,
+      // }
     ],
   };
   let brushProperties = device.createBindGroup(brushBindGroupDescriptor);
@@ -761,8 +730,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     const commandEncoder = device.createCommandEncoder();
     
     // update compute bindGroups if input textures changed
-    if (inputsChanged || hfChanged) {
-      if (hfChanged) {      
+    if (inputsChanged > -1) {
+      if (inputsChanged == 0) {      
         // console.log('currSourceTexIndex: ' +currSourceTexIndex);
         // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
         // console.log('old: ' + hfTextures[currSourceTexIndex].label);
@@ -779,26 +748,29 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
           },
         );
         // console.log('new: ' + hfTextures[currSourceTexIndex].label);
-        hfChanged = false;          
       }
 
       computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
       computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
-
       computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
       computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
-      computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
+
+      if (inputsChanged == 1) {
+        computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
+        computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();  
+      }
       
       computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
       computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
       computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
       
-      console.log(currBrushTexture.label);
-      brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
-      brushProperties = device.createBindGroup(brushBindGroupDescriptor);
+      if (inputsChanged == 2) {
+        console.log(currBrushTexture.label);
+        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
+        brushProperties = device.createBindGroup(brushBindGroupDescriptor);  
+      }
 
-      inputsChanged = false;
+      inputsChanged = -1;
     }
 
     //compute pass goes in the following stub

@@ -112,7 +112,7 @@ export function createTextureFromSource(device, url, source, options) {
         GPUTextureUsage.COPY_DST |
         GPUTextureUsage.RENDER_ATTACHMENT,
   });
-
+  console.log("mip count: "+texture.mipLevelCount);
   copySourceToTexture(device, texture, source, options.flipY ? options.flipY : false);
   return texture;
 }
