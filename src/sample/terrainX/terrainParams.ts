@@ -8,6 +8,8 @@ class TerrainParams
     upperVertY: number = 5;
     cellDiagX: number = 1176.47;
     cellDiagY: number = 1176.47;
+    heightRangeMin: number = 0;
+    heightRangeMax: number = 1;
 }
 
 export default TerrainParams;

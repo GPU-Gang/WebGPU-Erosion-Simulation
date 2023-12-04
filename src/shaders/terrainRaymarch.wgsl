@@ -12,6 +12,8 @@ struct Terrain
     textureSize: vec2<i32>, // texture size
     lowerLeft: vec2<f32>,   // AABB
     upperRight: vec2<f32>,  // AABB
+    cellDiag: vec2<f32>,    // cell diagonal
+    heightRange: vec2<f32>  // height range
 }
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -43,7 +45,6 @@ const MAX_ITERS : i32 = 256;
 const MIN_DIST : f32 = 0.01f;
 const MAX_DIST : f32 = 1000000.0f;
 const EPSILON : f32 = MIN_DIST;
-const heightRange : vec2<f32> = vec2(0, 1);       // hardcoded range for now
 const K: f32 = 1.0f;                              // hardcoded Lipschitz constant
 const lightPos: vec3<f32> = vec3(5, 12, -5);       // light position
 
@@ -94,9 +95,9 @@ fn intersectAABB(ray: Ray) -> IntersectAABBResult
     result.tFar = -1;
 
 	var rinvDir : vec3<f32> = 1.0 / ray.direction;
-	var delta : f32 = 0.1 * (heightRange.y - heightRange.x);
-	var tbot : vec3<f32> = rinvDir * (vec3(terrain.lowerLeft.x, heightRange.x - delta, terrain.lowerLeft.y) - ray.origin);
-	var ttop : vec3<f32> = rinvDir * (vec3(terrain.upperRight.x, heightRange.y + delta, terrain.upperRight.y) - ray.origin);
+	var delta : f32 = 0.1 * (terrain.heightRange.y - terrain.heightRange.x);
+	var tbot : vec3<f32> = rinvDir * (vec3(terrain.lowerLeft.x, terrain.heightRange.x - delta, terrain.lowerLeft.y) - ray.origin);
+	var ttop : vec3<f32> = rinvDir * (vec3(terrain.upperRight.x, terrain.heightRange.y + delta, terrain.upperRight.y) - ray.origin);
 
 	var tmin : vec3<f32> = min(ttop, tbot);
 	var tmax : vec3<f32> = max(ttop, tbot);
@@ -173,7 +174,7 @@ fn getTerrainElevation(p: vec2<f32>) -> f32
     var height : f32 = heightCol.r; // black and white means same colour in all channels
     
     // this is between 0 and 1 --> remap to correct height range
-	return remap(height, 0.0f, 1.0f, heightRange.x, heightRange.y);
+	return remap(height, 0.0f, 1.0f, terrain.heightRange.x, terrain.heightRange.y);
 }
 
 /* ============================================
@@ -185,11 +186,11 @@ fn getTerrainElevation(p: vec2<f32>) -> f32
 // returns signed distance value for the terrain at the point p.
 fn terrainSdf(p: vec3<f32>) -> f32 {
 	var t : f32 = p.y - getTerrainElevation(p.xz);
-	var delta : f32 = 0.1f * (heightRange.y - heightRange.x);
+	var delta : f32 = 0.1f * (terrain.heightRange.y - terrain.heightRange.x);
     
     var boxSdf: f32 = sdfBox3D(p, 
-                                vec3(terrain.lowerLeft.x, heightRange.x - delta, terrain.lowerLeft.y),
-                                vec3(terrain.upperRight.x, heightRange.y + delta, terrain.upperRight.y));
+                                vec3(terrain.lowerLeft.x, terrain.heightRange.x - delta, terrain.lowerLeft.y),
+                                vec3(terrain.upperRight.x, terrain.heightRange.y + delta, terrain.upperRight.y));
 
     return sdfIntersection(boxSdf, t);
 }
@@ -273,7 +274,7 @@ fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
 
 	// Terrain sides and bottom
 	if (abs(sdfBox2D(p.xz, terrain.lowerLeft, terrain.upperRight)) < EPSILON
-        || abs(p.y - heightRange.x + 0.1f * (heightRange.y - heightRange.x)) < EPSILON)
+        || abs(p.y - terrain.heightRange.x + 0.1f * (terrain.heightRange.y - terrain.heightRange.x)) < EPSILON)
     {
         return vec4(0.3f, 0.29f, 0.31f, 1.0f);
     }

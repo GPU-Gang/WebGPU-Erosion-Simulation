@@ -7,6 +7,8 @@ struct SimulationParams {
   upperVertY : f32,
   cellDiagX  : f32,     // cell diagonal
   cellDiagY  : f32,
+  heightRangeMin : f32,
+  heightRangeMax : f32,
 }
 
 struct CustomBrushParams {
@@ -27,7 +29,7 @@ struct AABB {
 }
 
 // Uniforms
-@group(0) @binding(0) var<uniform> simParams : SimulationParams;
+@group(0) @binding(0) var<storage, read_write> simParams : SimulationParams;
 
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
@@ -284,4 +286,7 @@ fn main(
 
   data.x = newHeight;
   Write(p, data);
+
+  simParams.heightRangeMin = 0.0;
+  simParams.heightRangeMax = 1.0;
 }

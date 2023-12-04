@@ -219,6 +219,10 @@ function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, 
       terrainParams.lowerVertX, terrainParams.lowerVertY,
       // AABB Upper Right Corner
       terrainParams.upperVertX, terrainParams.upperVertY,
+      // cell diag
+      terrainParams.cellDiagX, terrainParams.cellDiagY,
+      // height range
+      terrainParams.heightRangeMin, terrainParams.heightRangeMax
     ])
   );
 }
@@ -384,9 +388,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  const terrainUnifBufferSize = offset +
+  const terrainUnifBufferSize =
     2 * 4 +       // texture size (nx, ny)
     2 * 4 * 2 +   // AABB (vec2<f32> x2)
+    2 * 4 +       // cell diag
+    2 * 4 +       // heightRange (vec2<f32>)
     0;
 
   const terrainUnifBuffer = device.createBuffer({
@@ -564,14 +570,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   });
   
   // simulation parameters
-  const unifBufferSize =
-    4 + 4 +         // image resolution: nx * ny
-    2 * 4 * 2 +     // lower and upper vertices of a 2D box
-    2 * 4 +         // cell diagonal vec2<f32>
-    0;
   const simUnifBuffer = device.createBuffer({
-    size: unifBufferSize,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    size: terrainUnifBufferSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
 
   const simulationConstants = device.createBindGroup({
@@ -805,6 +806,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             terrainParams.lowerVertX, terrainParams.lowerVertY,
             terrainParams.upperVertX, terrainParams.upperVertY,
             terrainParams.cellDiagX, terrainParams.cellDiagY,
+            terrainParams.heightRangeMax, terrainParams.heightRangeMax,
         ])
       );
 
@@ -835,6 +837,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       );
       computePass.end();
       currSourceTexIndex = (currSourceTexIndex + 1) % 2;
+
+      // copy updated erosion params to the raymarch buffer
+      commandEncoder.copyBufferToBuffer(simUnifBuffer, 0, terrainUnifBuffer, 0, terrainUnifBufferSize);
     }
     //Terrain render pass goes in the following stub
     {
@@ -852,7 +857,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       
       // Draw main quad (terrain)
       writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
-      writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
+      
+      // no need to write the terrain unif buffer anymore since its copied straight from the erosion compute shader
+      // writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
       terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
       terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
       terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
