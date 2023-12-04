@@ -603,21 +603,21 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         {
           binding: 1,
           resource:{
-            buffer: maxHeightUpliftAtomicBuffer,
+            buffer: tmpHeightRangeBuffer,
           }
         },
         {
           binding: 2,
           resource:{
-            buffer: tmpHeightRangeBuffer,
-          }
-        },
-        {
-          binding: 3,
-          resource:{
             buffer: tmpUpliftRangeBuffer,
           }
-        }
+        },
+        // {
+        //   binding: 1,
+        //   resource:{
+        //     buffer: maxHeightUpliftAtomicBuffer,
+        //   }
+        // },
       ],
   });
 
@@ -756,13 +756,13 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       upliftPainted[1] = py;
   }
 
-  device.queue.writeBuffer(
-    maxHeightUpliftAtomicBuffer,
-    0,
-    new Uint32Array([
-        terrainParams.heightRangeMax * 100, terrainParams.heightRangeMax * 100
-    ])
-  );
+  // device.queue.writeBuffer(
+  //   maxHeightUpliftAtomicBuffer,
+  //   0,
+  //   new Uint32Array([
+  //       terrainParams.heightRangeMax * 100, terrainParams.heightRangeMax * 100
+  //   ])
+  // );
 
   const tmpHeightRange = new Float32Array(srcWidth * srcHeight);
   device.queue.writeBuffer(
@@ -790,170 +790,184 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     ])
   );
 
-  function frame() {
-    // Sample is no longer the active page.
-    if (!pageState.active) return;
+  function update()
+  {
+    return new Promise((resolve) => {
+      requestAnimationFrame(resolve);
+    });
+  }
 
-    if(clicked) {
-      rayCastToPaintTerrainOnClick();
-    }
-    else {
-      // update camera
-      camera.update();
-      upliftPainted[0] = -1;
-      upliftPainted[1] = -1;
-    }
+  async function mainLoop()
+  {
+    let shouldContinue = true;
+    while (shouldContinue)
+    {
+      // Sample is no longer the active page.
+      if (!pageState.active) return;
 
-    stats.begin();
-
-    // logging
-    // console.log("============== CAMERA VIEW MATRIX ==============");
-    // console.log("[" + camera.viewMatrix()[0] + "," + camera.viewMatrix()[4] + "," + camera.viewMatrix()[8] + "," + camera.viewMatrix()[3] + ",");
-    // console.log(camera.viewMatrix()[1] + "," + camera.viewMatrix()[5] + "," + camera.viewMatrix()[9] + "," + camera.viewMatrix()[7] + ",");
-    // console.log(camera.viewMatrix()[2] + "," + camera.viewMatrix()[6] + "," + camera.viewMatrix()[10] + "," + camera.viewMatrix()[11] + ",");
-    // // console.log(camera.viewMatrix()[12] + "," + camera.viewMatrix()[13] + "," + camera.viewMatrix()[14] + "," + camera.viewMatrix()[15] + "]");
-    // console.log("============== CAMERA POSITION ==============");
-    // console.log("[" + camera.getPosition()[0] + "," + camera.getPosition()[1] + "," + camera.getPosition()[2] + "]");
-    // // console.log("============== CAMERA UP ==============");
-    // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
-
-    const commandEncoder = device.createCommandEncoder();
-    
-    // update compute bindGroups if input textures changed
-    if (inputsChanged || hfChanged) {
-      if (hfChanged) {      
-        // console.log('currSourceTexIndex: ' +currSourceTexIndex);
-        // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
-        // console.log('old: ' + hfTextures[currSourceTexIndex].label);
-        commandEncoder.copyTextureToTexture(
-          {
-            texture: hfTextureArr[hfTextureAtlas[guiInputs.heightfield]], // source
-          },
-          {
-            texture: hfTextures[currSourceTexIndex], // destination
-          },
-          {
-            width: srcWidth,
-            height: srcHeight,
-          },
-        );
-        // console.log('new: ' + hfTextures[currSourceTexIndex].label);
-        hfChanged = false;          
+      if(clicked) {
+        rayCastToPaintTerrainOnClick();
+      }
+      else {
+        // update camera
+        camera.update();
+        upliftPainted[0] = -1;
+        upliftPainted[1] = -1;
       }
 
-      computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
-      computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
+      stats.begin();
 
-      computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
-      computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
+      // logging
+      // console.log("============== CAMERA VIEW MATRIX ==============");
+      // console.log("[" + camera.viewMatrix()[0] + "," + camera.viewMatrix()[4] + "," + camera.viewMatrix()[8] + "," + camera.viewMatrix()[3] + ",");
+      // console.log(camera.viewMatrix()[1] + "," + camera.viewMatrix()[5] + "," + camera.viewMatrix()[9] + "," + camera.viewMatrix()[7] + ",");
+      // console.log(camera.viewMatrix()[2] + "," + camera.viewMatrix()[6] + "," + camera.viewMatrix()[10] + "," + camera.viewMatrix()[11] + ",");
+      // // console.log(camera.viewMatrix()[12] + "," + camera.viewMatrix()[13] + "," + camera.viewMatrix()[14] + "," + camera.viewMatrix()[15] + "]");
+      // console.log("============== CAMERA POSITION ==============");
+      // console.log("[" + camera.getPosition()[0] + "," + camera.getPosition()[1] + "," + camera.getPosition()[2] + "]");
+      // // console.log("============== CAMERA UP ==============");
+      // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
+
+      const commandEncoder = device.createCommandEncoder();
       
-      computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
-      computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
-      computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
-      
-      brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
-      brushProperties = device.createBindGroup(brushBindGroupDescriptor);
+      // update compute bindGroups if input textures changed
+      if (inputsChanged || hfChanged) {
+        if (hfChanged) {      
+          // console.log('currSourceTexIndex: ' +currSourceTexIndex);
+          // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
+          // console.log('old: ' + hfTextures[currSourceTexIndex].label);
+          commandEncoder.copyTextureToTexture(
+            {
+              texture: hfTextureArr[hfTextureAtlas[guiInputs.heightfield]], // source
+            },
+            {
+              texture: hfTextures[currSourceTexIndex], // destination
+            },
+            {
+              width: srcWidth,
+              height: srcHeight,
+            },
+          );
+          // console.log('new: ' + hfTextures[currSourceTexIndex].label);
+          hfChanged = false;          
+        }
 
-      inputsChanged = false;
-    }
+        computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
+        computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
+        computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
 
-    //compute pass goes in the following stub
-    {
-      const computePass = commandEncoder.beginComputePass();
-      computePass.setPipeline(erosionComputePipeline);
+        computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
+        computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
+        computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
+        
+        computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
+        computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
+        computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
+        
+        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
+        brushProperties = device.createBindGroup(brushBindGroupDescriptor);
 
-      // update brush params
-      let erase = 0;
-      let useCustom = 0;
-      if (guiInputs.eraseTerrain) { erase = 1; }
-      if (guiInputs.useCustomBrush) { useCustom = 1; }
-      device.queue.writeBuffer(
-        brushUnifBuffer,
-        0,
-        new Float32Array([
-            upliftPainted[0], upliftPainted[1],
-            guiInputs.brushScale, guiInputs.brushStrength,
-            currBrushTexture.height, currBrushTexture.width,
-            erase, useCustom,
-        ])
-      );
+        inputsChanged = false;
+      }
 
-      computePass.setBindGroup(0, simulationConstants);
-      computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
-      computePass.setBindGroup(2, brushProperties);
-      computePass.dispatchWorkgroups(
-        //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
-        //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
-        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
-        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1
-      );
-      computePass.end();
-      currSourceTexIndex = (currSourceTexIndex + 1) % 2;
+      //compute pass goes in the following stub
+      {
+        const computePass = commandEncoder.beginComputePass();
+        computePass.setPipeline(erosionComputePipeline);
 
-      // copy updated erosion params to the raymarch buffer
-      commandEncoder.copyBufferToBuffer(simUnifBuffer, 0, terrainUnifBuffer, 0, terrainUnifBufferSize);
-    }
-    //Terrain render pass goes in the following stub
-    {
-      const terrainPassEncoder = commandEncoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: context.getCurrentTexture().createView(),
-          clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-      });
-      terrainPassEncoder.setPipeline(terrainRenderPipeline);
-      
-      // Draw main quad (terrain)
-      writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
-      
-      // no need to write the terrain unif buffer anymore since its copied straight from the erosion compute shader
-      // writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
-      terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
-      terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
-      terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
-      terrainPassEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
-      terrainPassEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
-      terrainPassEncoder.drawIndexed(terrainQuad.count);
+        // update brush params
+        let erase = 0;
+        let useCustom = 0;
+        if (guiInputs.eraseTerrain) { erase = 1; }
+        if (guiInputs.useCustomBrush) { useCustom = 1; }
+        device.queue.writeBuffer(
+          brushUnifBuffer,
+          0,
+          new Float32Array([
+              upliftPainted[0], upliftPainted[1],
+              guiInputs.brushScale, guiInputs.brushStrength,
+              currBrushTexture.height, currBrushTexture.width,
+              erase, useCustom,
+          ])
+        );
 
-      terrainPassEncoder.end();
-    }
-    // UI render pass goes under the following stub
-    {
-      const uiPassEncoder = commandEncoder.beginRenderPass({
+        computePass.setBindGroup(0, simulationConstants);
+        computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
+        computePass.setBindGroup(2, brushProperties);
+        computePass.dispatchWorkgroups(
+          //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
+          //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
+          Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
+          Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1
+        );
+        computePass.end();
+        currSourceTexIndex = (currSourceTexIndex + 1) % 2;
+
+        // copy updated erosion params to the raymarch buffer
+        // commandEncoder.copyBufferToBuffer(simUnifBuffer, 0, terrainUnifBuffer, 0, terrainUnifBufferSize);
+      }
+      //Terrain render pass goes in the following stub
+      {
+        const terrainPassEncoder = commandEncoder.beginRenderPass({
         colorAttachments: [
           {
             view: context.getCurrentTexture().createView(),
             clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-            loadOp: 'load',   // load the last render pass instead of clearing it
+            loadOp: 'clear',
             storeOp: 'store',
           },
         ],
         });
-      uiPassEncoder.setPipeline(uiRenderPipeline);
-      
-      // Draw input texture as UI
-      writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), camera, true);
-      uiPassEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
-      uiPassEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
-      uiPassEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
-      uiPassEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
-      uiPassEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
-      uiPassEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
-      uiPassEncoder.end();
-    }
+        terrainPassEncoder.setPipeline(terrainRenderPipeline);
+        
+        // Draw main quad (terrain)
+        writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
+        
+        // no need to write the terrain unif buffer anymore since its copied straight from the erosion compute shader
+        writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
+        terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
+        terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
+        terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
+        terrainPassEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
+        terrainPassEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
+        terrainPassEncoder.drawIndexed(terrainQuad.count);
 
-    device.queue.submit([commandEncoder.finish()]);
-    
-    requestAnimationFrame(frame);
-    stats.end();
+        terrainPassEncoder.end();
+      }
+      // UI render pass goes under the following stub
+      {
+        const uiPassEncoder = commandEncoder.beginRenderPass({
+          colorAttachments: [
+            {
+              view: context.getCurrentTexture().createView(),
+              clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+              loadOp: 'load',   // load the last render pass instead of clearing it
+              storeOp: 'store',
+            },
+          ],
+          });
+        uiPassEncoder.setPipeline(uiRenderPipeline);
+        
+        // Draw input texture as UI
+        writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), camera, true);
+        uiPassEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
+        uiPassEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
+        uiPassEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
+        uiPassEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
+        uiPassEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
+        uiPassEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
+        uiPassEncoder.end();
+      }
+
+      device.queue.submit([commandEncoder.finish()]);
+      
+      stats.end();
+
+      await update();
+    }
   }
-  requestAnimationFrame(frame);  
+
+  mainLoop();
 };
 
 const Terrain: () => JSX.Element = () =>

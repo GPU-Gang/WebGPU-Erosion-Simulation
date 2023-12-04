@@ -39,9 +39,9 @@ struct TempHeightRangeBuffer{
 
 // Uniforms
 @group(0) @binding(0) var<storage, read_write> simParams : SimulationParams;
-@group(0) @binding(1) var<storage, read_write> maxPxAtomic: MaxAtomicBuffer;
-@group(0) @binding(2) var<storage, read_write> tmpHeightRange : TempHeightRangeBuffer;
-@group(0) @binding(3) var<storage, read_write> tmpUpliftRange : TempHeightRangeBuffer;
+@group(0) @binding(1) var<storage, read_write> tmpHeightRange : TempHeightRangeBuffer;
+@group(0) @binding(2) var<storage, read_write> tmpUpliftRange : TempHeightRangeBuffer;
+// @group(0) @binding(3) var<storage, read_write> maxPxAtomic: MaxAtomicBuffer;
 
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
@@ -66,7 +66,7 @@ const k_d : f32 = 10.0;
 const k_h : f32 = 3.0;//2.0;
 const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
-const dt : f32 = 2.0;//1.0;
+const dt : f32 = 5.0;//1.0;
 
 // const PAINT_STRENGTH : f32 = 10.0;
 // const PAINT_RADIUS : f32 = 10.0;
@@ -114,7 +114,7 @@ fn UpliftAt(p : vec2i) -> f32 {
         }
       }
     }
-    // textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
+
     return color.r; // also greyscale?
 }
 
@@ -308,65 +308,66 @@ fn main(
     newHeight += dt * uplift * data.z;
   }
 
-  var oldMaxHeight = f32(atomicLoad(&maxPxAtomic.height));
-  var oldMaxUplift = f32(atomicLoad(&maxPxAtomic.uplift));
+  // var oldMaxHeight = f32(atomicLoad(&maxPxAtomic.height));
+  // var oldMaxUplift = f32(atomicLoad(&maxPxAtomic.uplift));
 
   tmpHeightRange.height[id] = newHeight;  // store this in the temp buffer
   tmpUpliftRange.height[id] = data.z;
-  workgroupBarrier();   // synchronize threads within the workgroup first
+  // workgroupBarrier();   // synchronize threads within the workgroup first
 
-  // Parallel reduction within workgroup
-  // reduce in x dim
-  for (var stride: i32 = 1;  stride < 8; stride <<= 1)
-  {
-    if (LocalInvocationID.x % (1u << u32(stride)) == 0)
-    {
-      var otherPx: vec2i = vec2i(idX + stride, idY);
-      var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
-      var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
+  // // Parallel reduction within workgroup
+  // // reduce in x dim
+  // for (var stride: i32 = 1;  stride < 8; stride <<= 1)
+  // {
+  //   if (LocalInvocationID.x % (1u << u32(stride)) == 0)
+  //   {
+  //     var otherPx: vec2i = vec2i(idX + stride, idY);
+  //     var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
+  //     var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
 
-      tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
-      tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
-    } 
-  }
-  // now reduce in y dim
-  for (var stride: i32 = 1;  stride < 8; stride <<= 1)
-  {
-    if (LocalInvocationID.x == 0 && LocalInvocationID.y % (1u << u32(stride)) == 0)
-    {
-      var otherPx: vec2i = vec2i(idX, idY + stride);
-      var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
-      var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
+  //     tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
+  //     tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
+  //   } 
+  // }
+  // // now reduce in y dim
+  // for (var stride: i32 = 1;  stride < 8; stride <<= 1)
+  // {
+  //   if (LocalInvocationID.x == 0 && LocalInvocationID.y % (1u << u32(stride)) == 0)
+  //   {
+  //     var otherPx: vec2i = vec2i(idX, idY + stride);
+  //     var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
+  //     var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
 
-      tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
-      tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
-    } 
-  }
+  //     tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
+  //     tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
+  //   } 
+  // }
 
-  workgroupBarrier(); // synchronize
+  // workgroupBarrier(); // synchronize
 
-  if (LocalInvocationID.x == 0 && LocalInvocationID.y == 0)
-  {
-    atomicMax(&maxPxAtomic.height, u32(tmpHeightRange.height[id] * 100));
-    atomicMax(&maxPxAtomic.uplift, u32(tmpUpliftRange.height[id] * 100));
-  }
+  // if (LocalInvocationID.x == 0 && LocalInvocationID.y == 0)
+  // {
+  //   atomicMax(&maxPxAtomic.height, u32(tmpHeightRange.height[id] * 100));
+  //   atomicMax(&maxPxAtomic.uplift, u32(tmpUpliftRange.height[id] * 100));
+  // }
 
-  workgroupBarrier(); // synchronize
+  // workgroupBarrier(); // synchronize
 
-  // Parallel reduction is done
+  // // Parallel reduction is done
 
-  // Adjust height range
-  if (GlobalInvocationID.x == 0 && GlobalInvocationID.y == 0)
-  {
-    simParams.heightRangeMin = 0.0;
-    simParams.heightRangeMax = max(f32(atomicLoad(&maxPxAtomic.height)), f32(atomicLoad(&maxPxAtomic.uplift))) / 100.0;
-  }
-  workgroupBarrier(); // synchronize
-  // Height range adjustment is done
+  // // Adjust height range
+  // if (GlobalInvocationID.x == 0 && GlobalInvocationID.y == 0)
+  // {
+  //   simParams.heightRangeMin = 0.0;
+  //   simParams.heightRangeMax = max(f32(atomicLoad(&maxPxAtomic.height)), f32(atomicLoad(&maxPxAtomic.uplift))) / 100.0;
+  // }
+  // workgroupBarrier(); // synchronize
+  // // Height range adjustment is done
 
-  data.x = remap(newHeight, 0, oldMaxHeight / 100.0, 0, simParams.heightRangeMax);
-  data.z = remap(data.z, 0, oldMaxUplift / 100.0, 0, f32(atomicLoad(&maxPxAtomic.uplift)) / 100.0);
+  // data.x = remap(newHeight, 0, oldMaxHeight / 100.0, 0, simParams.heightRangeMax);
+  // data.z = remap(data.z, 0, oldMaxUplift / 100.0, 0, f32(atomicLoad(&maxPxAtomic.uplift)) / 100.0);
 
   // data.x = newHiehgt data.z = newUplift; --> + dt * strhel -->
+  data.x = newHeight;
   Write(p, data);
 }
