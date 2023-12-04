@@ -826,10 +826,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
       computePass.setBindGroup(2, brushProperties);
       computePass.dispatchWorkgroups(
-        //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
-        //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
-        Math.ceil(srcWidth),
-        Math.ceil(srcHeight)
+        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
+        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
       );
       computePass.end();
       currSourceTexIndex = (currSourceTexIndex + 1) % 2;
