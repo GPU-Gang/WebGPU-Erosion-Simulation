@@ -7,7 +7,7 @@ import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
-import { Console, log } from 'console';
+const Stats = require('stats-js');
 import {createTextureFromImageWithMip} from './mipmaps';
 
 
@@ -21,7 +21,7 @@ const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
   hfTest1,
-  hfTest2,
+  hfTest2
 }
 enum upliftTextureAtlas {
   alpes_noise,
@@ -78,8 +78,6 @@ function rayCast(camera:Camera, width:number, height:number, px:number, py:numbe
 {
     let uv_x =  2.0 * px/width - 1.0;
     let uv_y =  2.0 * py/height - 1.0;
-    // console.log("ux:", uv_x);
-    // console.log("uy:", uv_y);
     let aspectRatio = width/height;
 
     const PI = 3.14159265358979323;
@@ -253,7 +251,7 @@ const createTextureFromImage = (
   return texture;
 };
 
-const init: SampleInit = async ({ canvas, pageState, gui }) => {
+const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   //////////////////////////////////////////////////////////////////////////////
   // GUI Controls
   //////////////////////////////////////////////////////////////////////////////
@@ -304,27 +302,32 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const devicePixelRatio = window.devicePixelRatio;
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
-  console.log("canvas.clientWidth:", canvas.clientWidth);
-  console.log("canvas.clientHeight:", canvas.clientHeight);
-  console.log("devicePixelRatio:", devicePixelRatio);
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
-  //code to perceive Ctrl + Mouse click begins here
-  // let id;
+  //The following 2 event listeners mousedown and mousemove are to handle mouse-based terrain uplift painting
   canvas.addEventListener('mousedown', (e) => {
-    if(e.ctrlKey && e.button == 0){   
+    if(e.ctrlKey) {
+      //stop propagation is necessary so that the 3d-view-controls camera movements do not interfere while painting terrain
+      e.stopImmediatePropagation();
       clicked = true;
       clickX = e.offsetX;
       clickY = e.offsetY;
-      // id = setInterval(() => { //this takes care of the case if the user is pressing and holding the mouse key.
-      //   clicked = true;
-      // }, 200); //essentially, after this deltaT, 'clicked' is again set to true. So this gives the effect similar to a keyboard press of a key
     }
-  });
+  }, true);
+
+  canvas.addEventListener('mousemove', (e) => {
+    if(e.ctrlKey) {
+      //stopping propagation for the same reason as in mousedown event listener above
+      e.stopImmediatePropagation();
+      if(e.button == 0) {
+        clickX = e.offsetX;
+        clickY = e.offsetY;
+      }
+    }
+  }, true);
 
   //once mouse button is released, clicks should no longer be perceived
   canvas.addEventListener('mouseup', () => {  
-    // clearInterval(id);   
       clicked = false;
   });
 
@@ -336,6 +339,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
 
   setupGeometry(device);
 
+  stats.showPanel(0); // 0 means show FPS by default.
+  
   // Setup camera
   const target = vec3.create(terrainQuad.center[0],  terrainQuad.center[1] + 2, terrainQuad.center[2]);
   const camera = new Camera(vec3.create(0, 0, -10), target);
@@ -665,49 +670,44 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
-  const terrainParams: TerrainParams = new TerrainParams();  
+  const terrainParams: TerrainParams = new TerrainParams();
+  
+  function rayCastToPaintTerrainOnClick() {
+    let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width;
+      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height;
+
+      let rayDir = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
+      let rayOrigin = vec3.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2]);
+            
+      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(rayOrigin, rayDir);
+      let px = -1, py = -1;
+      if(doesRayIntersectPlane) {
+
+        // lower left to current point
+        let numerator = vec3.sub(
+          vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),          
+          vec3.create(terrainParams.lowerVertX, 0, terrainParams.lowerVertY));
+
+        // full range
+	      let denom = vec3.sub(
+          vec3.create(terrainParams.upperVertX, 0, terrainParams.upperVertY),
+          vec3.create(terrainParams.lowerVertX, 0, terrainParams.lowerVertY));
+          
+	      let uv = vec3.div(numerator, denom);    // remap the vec2 point to a 0->1 range
+        
+        px = Math.floor(uv[0]  * srcWidth);
+        py = Math.floor(uv[2] * srcHeight);
+      }
+      upliftPainted[0] = px;
+      upliftPainted[1] = py;
+  }
 
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
 
     if(clicked) {
-
-      //clicked = false;
-      let w = camera.resolution[0]/window.devicePixelRatio;// canvas.width; // = canvas.clientWidth = 600
-      let h = camera.resolution[1]/window.devicePixelRatio;//canvas.height; // = canvas.clientHeight = 600
-      let ray = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
-      
-      //terrain quad is already in screen space, so we transform our ray to be in screen space too
-      let transformedRayOrigin = vec4.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2], 1.0);
-      let transformedRayDirection = vec4.create(ray[0], ray[1], ray[2], 0.0);
-
-      let viewProj = mat4.multiply(camera.projectionMatrix, camera.viewMatrix());
-
-      transformedRayOrigin = vec3.fromValues(transformedRayOrigin[0], transformedRayOrigin[1], transformedRayOrigin[2]);
-      transformedRayDirection = vec3.fromValues(transformedRayDirection[0], transformedRayDirection[1], transformedRayDirection[2]);
-            
-      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(transformedRayOrigin, transformedRayDirection);
-      let px = -1, py = -1;
-      if(doesRayIntersectPlane) {
-        // console.log("Ray hit!");  
-        
-        let numerator = vec3.sub(
-          vec3.create(intersectionPointInWorldSpace[0], intersectionPointInWorldSpace[1], intersectionPointInWorldSpace[2]),
-          vec3.create(-5,0,-5));       // lower left to current point
-	      let denom = vec3.sub(vec3.create(5,0,5), vec3.create(-5,0,-5));  // full range
-	      let uv = vec3.div(numerator, denom);    // remap the vec2 point to a 0->1 range
-        
-        px = Math.floor(uv[0]  * srcWidth);
-        py = Math.floor(uv[2] * srcHeight);
-        // console.log("px: ", px);
-        // console.log("py: ", py);
-      }
-      else {
-        console.log("alas....");
-      }
-      upliftPainted[0] = px;
-      upliftPainted[1] = py;
+      rayCastToPaintTerrainOnClick();
     }
     else {
       // update camera
@@ -715,6 +715,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
       upliftPainted[0] = -1;
       upliftPainted[1] = -1;
     }
+
+    stats.begin();
 
     // logging
     // console.log("============== CAMERA VIEW MATRIX ==============");
@@ -868,10 +870,11 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     }
 
     device.queue.submit([commandEncoder.finish()]);
-
+    
     requestAnimationFrame(frame);
+    stats.end();
   }
-  requestAnimationFrame(frame);
+  requestAnimationFrame(frame);  
 };
 
 const Terrain: () => JSX.Element = () =>
