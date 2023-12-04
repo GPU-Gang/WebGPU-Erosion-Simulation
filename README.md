@@ -33,7 +33,17 @@ Using the same controls as the painting tool, users can toggle to erase the terr
 ## Real-World Data Integration
 After establishing a usable model based on the paper, we wanted to see its applicability using some real world data. We used [Earth Explorer](https://earthexplorer.usgs.gov/) to get the height field for a certain part of the world. [This](https://www.youtube.com/watch?v=kEgijZUKMGc) video was a helpful walkthrough that showed us how we could use Earth Explorer to get the required height maps.
 
-### Proof of Concept
+* ### Proof of Concept
+First, we select a section of the terrain on Earth Explorer whose data we want to retrieve. We selected a section of the Himalayas:  
+![](public/assets/captures/realworld_poc_1.png)  
+
+Next, Earth Explorer shows the sections for which data is available and chops it up into individual textures of **1201X1201 pixels**. We selected the one shown below:  
+![](public/assets/captures/realworld_poc_2.png)  
+![](public/assets/captures/realworld_poc_3.png)  
+
+Finally, we use this texture in our application, and we can see a visaulization of the Himalayas based on the Height Map used and running at a solid 80+ FPS:  
+<img src="public/assets/captures/realword_poc_terrain1.png" width=400> 
+<img src="public/assets/captures/realword_poc_terrain2.png" width=400> 
 
 ## Building
 `webgpu-erosion-simulation` is built with [Typescript](https://www.typescriptlang.org/)
