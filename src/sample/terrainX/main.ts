@@ -14,13 +14,12 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest3', 'hfTest2', 'hfTest1'];
+const heightfields = ['hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1', 'pattern2', 'pattern3']; // currently only affects uplift map
 enum hfTextureAtlas {
-  hfTest3,
-  hfTest2,
-  hfTest1
+  hfTest1,
+  hfTest2
 }
 enum upliftTextureAtlas {
   alpes_noise,
