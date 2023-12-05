@@ -8,6 +8,8 @@ import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
 const Stats = require('stats-js');
+import {createTextureFromImageWithMip} from './mipmaps';
+
 
 // File paths
 const hfDir = 'assets/heightfields/';
@@ -16,7 +18,7 @@ const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
 const heightfields = ['hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
-const customBrushes = ['pattern1', 'pattern2', 'pattern3']; // currently only affects uplift map
+const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
   hfTest1,
   hfTest2
@@ -26,21 +28,20 @@ enum upliftTextureAtlas {
   lambda,
 }
 enum brushTextureAtlas {
-  pattern1,
-  pattern2,
-  pattern3,
+  pattern1_bg,
+  pattern2_bg,
+  pattern3_bg,
 }
 // Pre-loaded textures
 let hfTextureArr : GPUTexture[] = [];
 let upliftTextureArr : GPUTexture[] = [];
 let brushTextureArr : GPUTexture[] = [];
 
-let hfTextures : GPUTexture[] = []; // ping-pong buffers for heightfields
+let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
 let currUpliftTexture : GPUTexture;
 let currBrushTexture : GPUTexture;
 
-// Ping-Pong texture index
-let currSourceTexIndex = 0;
+let currSourceTexIndex = 0; // Ping-Pong texture index
 let clicked = false;
 let clickX = 0;
 let clickY = 0;
@@ -262,24 +263,23 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     eraseTerrain: false,
     useCustomBrush: false,
     customBrush: customBrushes[0],
-    brushScale: 10,
-    brushStrength: 10, 
+    brushScale: 5,
+    brushStrength: 5, 
   };
 
-  let inputsChanged = false;
-  let hfChanged = false;
+  let inputsChanged = -1;
   const onChangeTextureHf = () => {
-    hfChanged = true;
+    inputsChanged = 0;
   };
 
   const onChangeTextureUplift = () => {
     currUpliftTexture = upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]];
-    inputsChanged = true;
+    inputsChanged = 1;
   };
 
   const onChangeTextureBrush = () => {
     currBrushTexture = brushTextureArr[brushTextureAtlas[guiInputs.customBrush]];
-    inputsChanged = true;
+    inputsChanged = 2;
   };
   
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
@@ -287,8 +287,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'eraseTerrain');
   gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
-  gui.add(guiInputs, 'brushScale', 0, 100); // optional numbers: min, max, step
-  gui.add(guiInputs, 'brushStrength', 0, 100);
+  gui.add(guiInputs, 'brushScale', 0, 10, 1); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
 
   //////////////////////////////////////////////////////////////////////////////
   // WebGPU Context Setup
@@ -510,44 +510,15 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   );
 
   // custom brush texture
-  response = await fetch(upliftDir + guiInputs.customBrush + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  currBrushTexture = createTextureFromImage(
-    device,
-    imageBitmap,
-    false,
-    true,
-    `brush_${guiInputs.customBrush}`
-  );
-
-  // brush 0
-  brushTextureArr.push(currBrushTexture);
-  // brush 1
-  nextTex = customBrushes[1];
-  response = await fetch(upliftDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  brushTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      true,
-      `brush_${nextTex}`
-    )
-  );
-  // brush 2
-  nextTex = customBrushes[2];
-  response = await fetch(upliftDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  brushTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      true,
-      `brush_${nextTex}`
-    )
-  );
+  brushTextureArr = await Promise.all([
+    await createTextureFromImageWithMip(device,
+        `${upliftDir}${customBrushes[0]}.png`, {mips: true, flipY: false}),
+    await createTextureFromImageWithMip(device,
+        `${upliftDir}${customBrushes[1]}.png`, {mips: true, flipY: false}),
+    await createTextureFromImageWithMip(device,
+        `${upliftDir}${customBrushes[2]}.png`, {mips: true, flipY: false}),
+  ]);
+  currBrushTexture = brushTextureArr[0];
 
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
@@ -668,6 +639,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
+  // const brushSampler = device.createSampler({
+  //   magFilter: 'nearest',
+  //   minFilter: 'nearest',
+  // });
+
   const brushBindGroupDescriptor: GPUBindGroupDescriptor = {
     label: "brush bind group descriptor",
     layout: erosionComputePipeline.getBindGroupLayout(2),
@@ -682,6 +658,10 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         binding: 1,
         resource: currBrushTexture.createView(),
       },
+      // {
+      //   binding: 2,
+      //   resource: brushSampler,
+      // }
     ],
   };
   let brushProperties = device.createBindGroup(brushBindGroupDescriptor);
@@ -752,8 +732,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     const commandEncoder = device.createCommandEncoder();
     
     // update compute bindGroups if input textures changed
-    if (inputsChanged || hfChanged) {
-      if (hfChanged) {      
+    if (inputsChanged > -1) {
+      if (inputsChanged == 0) {      
         // console.log('currSourceTexIndex: ' +currSourceTexIndex);
         // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
         // console.log('old: ' + hfTextures[currSourceTexIndex].label);
@@ -770,25 +750,29 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           },
         );
         // console.log('new: ' + hfTextures[currSourceTexIndex].label);
-        hfChanged = false;          
       }
 
       computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
       computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
-
       computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
       computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
-      computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();
+
+      if (inputsChanged == 1) {
+        computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
+        computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();  
+      }
       
       computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
       computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
       computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
       
-      brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
-      brushProperties = device.createBindGroup(brushBindGroupDescriptor);
+      if (inputsChanged == 2) {
+        console.log(currBrushTexture.label);
+        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
+        brushProperties = device.createBindGroup(brushBindGroupDescriptor);  
+      }
 
-      inputsChanged = false;
+      inputsChanged = -1;
     }
 
     //compute pass goes in the following stub
@@ -828,10 +812,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
       computePass.setBindGroup(2, brushProperties);
       computePass.dispatchWorkgroups(
-        //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
-        //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
-        Math.ceil(srcWidth),
-        Math.ceil(srcHeight)
+        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
+        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
       );
       computePass.end();
       currSourceTexIndex = (currSourceTexIndex + 1) % 2;
