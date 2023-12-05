@@ -2,12 +2,12 @@ import mipmapWGSL from '../../shaders/generateMipmaps.wgsl';
 
 export const generateMips = (() => {
   let sampler;
-  let module;
+  let mipModule;
   const pipelineByFormat = {};
 
   return function generateMips(device, texture) {
-    if (!module) {
-      module = device.createShaderModule({
+    if (!mipModule) {
+      mipModule = device.createShaderModule({
         label: 'textured quad shaders for mip level generation',
         code: mipmapWGSL,
       });
@@ -23,17 +23,17 @@ export const generateMips = (() => {
         label: 'mip level generator pipeline',
         layout: 'auto',
         vertex: {
-            module,
-            entryPoint: 'vertexMain',
+          mipModule,
+          entryPoint: 'vertexMain',
         },
         fragment: {
-            module,
-            entryPoint: 'fragmentMain',
-            targets: [{ format: texture.format }], // Make sure to use the same format as the texture
+          mipModule,
+          entryPoint: 'fragmentMain',
+          targets: [{ format: texture.format }], // Make sure to use the same format as the texture
         },
         primitive: {
-            topology: 'triangle-strip',
-            stripIndexFormat: 'uint32',
+          topology: 'triangle-strip',
+          stripIndexFormat: 'uint32',
         },
       });
     }
