@@ -23,11 +23,11 @@ export const generateMips = (() => {
         label: 'mip level generator pipeline',
         layout: 'auto',
         vertex: {
-          mipModule,
+          module: mipModule,
           entryPoint: 'vertexMain',
         },
         fragment: {
-          mipModule,
+          module: mipModule,
           entryPoint: 'fragmentMain',
           targets: [{ format: texture.format }], // Make sure to use the same format as the texture
         },
