@@ -32,7 +32,9 @@ Using the same controls as the painting tool, users can toggle to erase the terr
 
 ### 4. Texture-based Brush Tool
 Checkcing the `customBrush` box will enable users to paint and erase using a texture-based brush. The `brushScale` then represents the different mipmap levels of the original texture, resulting in a smaller brush size with a higher `brushScale`.
-<img src="public/assets/captures/ui_brush.png" width=300>  
+
+<img src="public/assets/captures/ui_brush.png" width=300>
+
 ![](public/assets/captures/brush.gif)
 
 ## Real-World Data Integration
