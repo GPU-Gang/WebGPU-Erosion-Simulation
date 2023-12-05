@@ -35,6 +35,7 @@ Checkcing the `customBrush` box will enable users to paint and erase using a tex
 
 
 <img src="public/assets/captures/ui_brush.png" width=300>
+
 ![](public/assets/captures/brush.gif)
 
 ## Real-World Data Integration
