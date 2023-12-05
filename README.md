@@ -30,6 +30,11 @@ Using the same controls as the painting tool, users can toggle to erase the terr
 <img src="public/assets/captures/ui_erase.png" width=300>  
 ![](public/assets/captures/erase.gif)
 
+### 4. Texture-based Brush Tool
+Checkcing the `customBrush` box will enable users to paint and erase using a texture-based brush. The `brushScale` then represents the different mipmap levels of the original texture, resulting in a smaller brush size with a higher `brushScale`.
+<img src="public/assets/captures/ui_brush.png" width=300>  
+![](public/assets/captures/brush.gif)
+
 ## Real-World Data Integration
 After establishing a usable model based on the paper, we wanted to see its applicability using some real world data. We used [Earth Explorer](https://earthexplorer.usgs.gov/) to get the height field for a certain part of the world. [This](https://www.youtube.com/watch?v=kEgijZUKMGc) video was a helpful walkthrough that showed us how we could use Earth Explorer to get the required height maps.
 

@@ -54,9 +54,6 @@ const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
 const dt : f32 = 2.0;//1.0;
 
-// const PAINT_STRENGTH : f32 = 10.0;
-// const PAINT_RADIUS : f32 = 10.0;
-
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
   vec2i(0, 1), vec2i(1, 1), 
@@ -218,10 +215,10 @@ fn GetBrushAABB() -> AABB {
   var center = vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY);
   var halfWidth = f32(textureDimensions(customBrush).x / 2);
   var halfHeight = f32(textureDimensions(customBrush).y / 2);
-  var scale = 1.0;//customBrushParams.brushScale;
+  var scale = 1 + customBrushParams.brushScale;
 
-  var lowerLeft = vec2f(center.x - halfWidth * scale, center.y - halfHeight * scale);
-  var upperRight = vec2f(center.x + halfWidth * scale, center.y + halfHeight * scale);
+  var lowerLeft = vec2f(center.x - halfWidth / scale, center.y - halfHeight / scale);
+  var upperRight = vec2f(center.x + halfWidth / scale, center.y + halfHeight / scale);
   return AABB(lowerLeft, upperRight);
 }
 
@@ -234,8 +231,8 @@ fn DrawBrush(pf : vec2f, colorChannel : f32) -> f32 {
   var withinBB = minX < pf.x && pf.x < maxX &&
                   minY < pf.y && pf.y < maxY;
   if (withinBB) {
-    var texCoordf = vec2f((pf.x - minX) / f32(textureDimensions(customBrush).x),
-                          (pf.y - minY) / f32(textureDimensions(customBrush).y));
+    // var texCoordf = vec2f((pf.x - minX) / f32(textureDimensions(customBrush).x),
+    //                       (pf.y - minY) / f32(textureDimensions(customBrush).y));
     var pixelIdx = vec2u(u32(pf.x - minX), u32(pf.y - minY));
 
     var strength = customBrushParams.brushStrength * 0.1; // scale down strength for now, testing
