@@ -7,6 +7,8 @@ import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
+import { error } from 'console';
+import terrainHelpers from './terrainHelpers';
 const Stats = require('stats-js');
 
 // File paths
@@ -14,10 +16,11 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest1', 'hfTest2'];
+const heightfields = ['hfTest6', 'hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1', 'pattern2', 'pattern3']; // currently only affects uplift map
 enum hfTextureAtlas {
+  hfTest6,
   hfTest1,
   hfTest2,
 }
@@ -67,7 +70,7 @@ function rayPlaneIntersection(rayOrigin: Vec3, rayDir: Vec3)
   let c = vec4.create(0,0,0,0);//vec4.transformMat4(vec4.create(0,0,0,0), mat4.inverse(mvp));
   let t = vec3.dot(planeNormal,vec3.sub(c, rayOrigin)) / vec3.dot(planeNormal, rayDir);
   let interesection = vec3.add(rayOrigin, vec3.mulScalar(rayDir, t));
-  if(t < 0 || interesection[0] < -5 || interesection[0] > 5 || interesection[2] < -5 || interesection[2] > 5) {
+  if(t < 0 || interesection[0] < -150 || interesection[0] > 150 || interesection[2] < -150 || interesection[2] > 150) {
       return [false, null];
     }
     return [true, interesection];
@@ -222,7 +225,9 @@ function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, 
       // cell diag
       terrainParams.cellDiagX, terrainParams.cellDiagY,
       // height range
-      terrainParams.heightRangeMin, terrainParams.heightRangeMax
+      terrainParams.heightRangeMin, terrainParams.heightRangeMax,
+      // lipschitz constant
+      terrainParams.k,
     ])
   );
 }
@@ -237,7 +242,7 @@ const createTextureFromImage = (
   const texture = device.createTexture({
     label: label,
     size: [bitmap.width, bitmap.height, 1],
-    format: greyscale ? 'r8unorm' : 'rgba8unorm',
+    format: greyscale ? 'rgba8unorm' : 'rgba8unorm',
     mipLevelCount: 1,//numMipLevels,
     usage:
       GPUTextureUsage.TEXTURE_BINDING |
@@ -393,6 +398,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     2 * 4 * 2 +   // AABB (vec2<f32> x2)
     2 * 4 +       // cell diag
     2 * 4 +       // heightRange (vec2<f32>)
+    4 +           // lipschitz constant k
+    4 +           // padding
     0;
 
   const terrainUnifBuffer = device.createBuffer({
@@ -422,7 +429,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
     { texture: hfTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+    [imageBitmap.width, imageBitmap.height]
   );
   
   // pre-load all the uplift textures
@@ -512,7 +519,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
     { texture: streamTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+    [imageBitmap.width, imageBitmap.height]
   );
 
   // custom brush texture
@@ -582,7 +589,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
 
   const tmpHeightRangeBuffer = device.createBuffer({
     size: srcHeight * srcWidth * 4,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | GPUBufferUsage.STORAGE
   });
 
   const tmpUpliftRangeBuffer = device.createBuffer({
@@ -612,12 +619,12 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             buffer: tmpUpliftRangeBuffer,
           }
         },
-        // {
-        //   binding: 1,
-        //   resource:{
-        //     buffer: maxHeightUpliftAtomicBuffer,
-        //   }
-        // },
+        {
+          binding: 3,
+          resource:{
+            buffer: maxHeightUpliftAtomicBuffer,
+          }
+        },
       ],
   });
 
@@ -789,6 +796,19 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         terrainParams.heightRangeMax, terrainParams.heightRangeMax,
     ])
   );
+  // ======================================================= 
+  // =========== CPU SIDE BUFFERS FOR READBACK =============
+  // =======================================================
+
+  const tmpHeightRangeBufferReadback = device.createBuffer({
+    size: srcHeight * srcWidth * 4,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+
+  const tmpUpliftRangeBufferReadback = device.createBuffer({
+    size: srcHeight * srcWidth * 4 * 4,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
 
   function update()
   {
@@ -796,6 +816,58 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       requestAnimationFrame(resolve);
     });
   }
+
+  async function updateRanges()
+  {
+    const readbackEncoder = device.createCommandEncoder();
+    readbackEncoder.copyBufferToBuffer(tmpHeightRangeBuffer, 0, tmpHeightRangeBufferReadback, 0, tmpHeightRangeBufferReadback.size);
+    device.queue.submit([readbackEncoder.finish()]);
+
+    await tmpHeightRangeBufferReadback.mapAsync(GPUMapMode.READ);
+    const heightBuffer = tmpHeightRangeBufferReadback.getMappedRange();
+    const heightsArray = new Float32Array(heightBuffer);
+
+    var maxHeight = 0.0;//terrainParams.heightRangeMax;
+    for (var i: number = 0; i<heightsArray.length; i++)
+    {
+      maxHeight = Math.max(maxHeight, heightsArray[i]);
+    }
+
+    var k: number = 0.0;
+
+    for (var i: number = 0; i < terrainParams.nx; i++)
+    {
+      for (var j: number = 0; j < terrainParams.ny; j++)
+      {
+        k = Math.max(k, terrainHelpers.Norm(terrainHelpers.Gradient(i, j, heightsArray, terrainParams)));
+      }
+    }
+    // console.log("height at 0,0: ", heightsArray[256+ 12*12]);
+    console.log("max height now is: ", maxHeight);
+    tmpHeightRangeBufferReadback.unmap();
+
+    terrainParams.heightRangeMax = maxHeight;
+    if (k == 0.0)
+    {
+      k = 1.0;
+    }
+    terrainParams.k = k;
+    console.log("k is now", k);
+
+    // // terrain parameters
+    // device.queue.writeBuffer(
+    //   simUnifBuffer,
+    //   0,
+    //   new Float32Array([
+    //       terrainParams.nx, terrainParams.ny,
+    //       terrainParams.lowerVertX, terrainParams.lowerVertY,
+    //       terrainParams.upperVertX, terrainParams.upperVertY,
+    //       terrainParams.cellDiagX, terrainParams.cellDiagY,
+    //       terrainParams.heightRangeMin, terrainParams.heightRangeMax,
+    //       terrainParams.k,
+    //   ])
+    // );
+  };
 
   async function mainLoop()
   {
@@ -897,8 +969,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         computePass.dispatchWorkgroups(
           //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
           //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
-          Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
-          Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1
+          Math.ceil(1201 / 8),
+          Math.ceil(1201 / 8),
+          1
         );
         computePass.end();
         currSourceTexIndex = (currSourceTexIndex + 1) % 2;
@@ -958,9 +1031,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         uiPassEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
         uiPassEncoder.end();
       }
-
       device.queue.submit([commandEncoder.finish()]);
-      
+
+      // CPU readback happens under the following stub
+      // await updateRanges();
+
       stats.end();
 
       await update();

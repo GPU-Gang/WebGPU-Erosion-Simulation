@@ -1,6 +1,6 @@
 struct SimulationParams {
-  nx         : i32,     // array dimension
-  ny         : i32,
+  nx         : f32,     // array dimension
+  ny         : f32,
   lowerVertX : f32,     // lower and upper vertices of the box of the heightfield
   lowerVertY : f32,
   upperVertX : f32,
@@ -33,15 +33,12 @@ struct MaxAtomicBuffer{
   uplift: atomic<u32>
 }
 
-struct TempHeightRangeBuffer{
-  height: array<f32>
-}
-
 // Uniforms
 @group(0) @binding(0) var<storage, read_write> simParams : SimulationParams;
-@group(0) @binding(1) var<storage, read_write> tmpHeightRange : TempHeightRangeBuffer;
-@group(0) @binding(2) var<storage, read_write> tmpUpliftRange : TempHeightRangeBuffer;
-// @group(0) @binding(3) var<storage, read_write> maxPxAtomic: MaxAtomicBuffer;
+@group(0) @binding(1) var<storage, read_write> tmpHeightRange : array<f32>;
+@group(0) @binding(2) var<storage, read_write> tmpUpliftRange : array<f32>;
+// @group(0) @binding(3) var<storage, read_write> tmpStreamRange : array<f32>;
+@group(0) @binding(3) var<storage, read_write> maxPxAtomic: MaxAtomicBuffer;
 
 @group(1) @binding(1) var inElevation : texture_2d<f32>;
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
@@ -60,11 +57,11 @@ struct TempHeightRangeBuffer{
 // 2: Stream power + Hillslope (Laplacian) + Debris slope
 const erosionMode : i32 = 2;
 
-const uplift : f32 = 0.005;//0.01;
+const uplift : f32 = 0.005;
 const k : f32 = 0.05;//0.0005;
 const k_d : f32 = 10.0;
-const k_h : f32 = 3.0;//2.0;
-const p_sa : f32 = 1.0;//0.8;
+const k_h : f32 = 2.0;
+const p_sa : f32 = 0.8;////1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
 const dt : f32 = 5.0;//1.0;
 
@@ -80,9 +77,9 @@ const neighbors : array<vec2i, 8> = array<vec2i, 8>(
 );
 
 // ----------- Utilities -----------
-fn ToIndex1D(i : i32, j : i32) -> i32 { return i + simParams.nx * j; }
+fn ToIndex1D(i : i32, j : i32) -> i32 { return i + i32(simParams.nx) * j; }
 
-fn ToIndex1DFromCoord(p : vec2i) -> i32 { return p.x + simParams.nx * p.y; }
+fn ToIndex1DFromCoord(p : vec2i) -> i32 { return p.x + i32(simParams.nx) * p.y; }
 
 fn Height(p : vec2i) -> f32 {
     let color = textureLoad(inElevation, vec2u(p), 0);
@@ -134,8 +131,8 @@ fn Point3D(p : vec2i) -> vec3f {
 }
 
 fn Slope(p : vec2i, q : vec2i) -> f32 {
-  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
-  if (q.x < 0 || q.x >= simParams.nx || q.y < 0 || q.y >= simParams.ny) { return 0.0; }
+  if (p.x < 0 || p.x >= i32(simParams.nx) || p.y < 0 || p.y >= i32(simParams.ny)) { return 0.0; }
+  if (q.x < 0 || q.x >= i32(simParams.nx) || q.y < 0 || q.y >= i32(simParams.ny)) { return 0.0; }
   if (p.x == q.x && p.y == q.y) { return 0.0; }
 
   var d = length(ArrayPoint(q) - ArrayPoint(p));
@@ -156,7 +153,7 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
 }
 
 fn Stream(p : vec2i) -> f32 {
-  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
+  if (p.x < 0 || p.x >= i32(simParams.nx) || p.y < 0 || p.y >= i32(simParams.ny)) { return 0.0; }
   
   return StreamAt(p);
 }
@@ -184,7 +181,7 @@ fn Laplacian(p : vec2i) -> f32 {
   if (i == 0) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i+1, j)) + Height(vec2i(i+2, j))) / sqrCellDiagX;
   }
-  else if (i == simParams.nx - 1) {
+  else if (i == i32(simParams.nx) - 1) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i-1, j)) + Height(vec2i(i-2, j))) / sqrCellDiagX;
   }
   else {
@@ -194,7 +191,7 @@ fn Laplacian(p : vec2i) -> f32 {
   if (j == 0) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i, j+1)) + Height(vec2i(i, j+2))) / sqrCellDiagY;
   }
-  else if (j == simParams.ny - 1) {
+  else if (j == i32(simParams.ny) - 1) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i, j-1)) + Height(vec2i(i, j-2))) / sqrCellDiagY;
   }
   else {
@@ -205,7 +202,7 @@ fn Laplacian(p : vec2i) -> f32 {
 }
 
 fn Read(p : vec2i) -> vec4f {
-  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) {
+  if (p.x < 0 || p.x >= i32(simParams.nx) || p.y < 0 || p.y >= i32(simParams.ny)) {
     return vec4f();
   }
 
@@ -271,8 +268,8 @@ fn main(
 
   var newHeight = 0.0;
   // Border nodes are fixed to zero (elevation and drainage)
-  if (p.x == 0 || p.x == simParams.nx - 1 ||
-      p.y == 0 || p.y == simParams.ny - 1) {
+  if (p.x == 0 || p.x == i32(simParams.nx) - 1 ||
+      p.y == 0 || p.y == i32(simParams.ny) - 1) {
     data.x = 0.0;
     data.y = 1.0 * length(cellDiag);
     // Write(p, data);
@@ -305,14 +302,21 @@ fn main(
     }
 
     newHeight = max(newHeight, receiver.x);
-    newHeight += dt * uplift * data.z;
+    newHeight += dt * uplift * data.z * 0.1;
+
+    if (newHeight < 0.1)
+    {
+      newHeight = 0.1;
+    }
   }
 
-  // var oldMaxHeight = f32(atomicLoad(&maxPxAtomic.height));
-  // var oldMaxUplift = f32(atomicLoad(&maxPxAtomic.uplift));
+  tmpHeightRange[id] = newHeight;  // store this in the temp buffer
+  tmpUpliftRange[id] = data.z;
+  // tmpStreamRange[id] = data.y;
+  var oldMaxHeight = f32(atomicLoad(&maxPxAtomic.height));
+  var oldMaxUplift = f32(atomicLoad(&maxPxAtomic.uplift));
 
-  tmpHeightRange.height[id] = newHeight;  // store this in the temp buffer
-  tmpUpliftRange.height[id] = data.z;
+
   // workgroupBarrier();   // synchronize threads within the workgroup first
 
   // // Parallel reduction within workgroup
@@ -322,11 +326,11 @@ fn main(
   //   if (LocalInvocationID.x % (1u << u32(stride)) == 0)
   //   {
   //     var otherPx: vec2i = vec2i(idX + stride, idY);
-  //     var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
-  //     var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
+  //     var otherHeight: f32 = tmpHeightRange[ToIndex1DFromCoord(otherPx)];
+  //     var otherUplift: f32 = tmpUpliftRange[ToIndex1DFromCoord(otherPx)];
 
-  //     tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
-  //     tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
+  //     tmpHeightRange[id] = max(tmpHeightRange[id], otherHeight);
+  //     tmpUpliftRange[id] = max(tmpUpliftRange[id], otherUplift);
   //   } 
   // }
   // // now reduce in y dim
@@ -335,11 +339,11 @@ fn main(
   //   if (LocalInvocationID.x == 0 && LocalInvocationID.y % (1u << u32(stride)) == 0)
   //   {
   //     var otherPx: vec2i = vec2i(idX, idY + stride);
-  //     var otherHeight: f32 = tmpHeightRange.height[ToIndex1DFromCoord(otherPx)];
-  //     var otherUplift: f32 = tmpUpliftRange.height[ToIndex1DFromCoord(otherPx)];
+  //     var otherHeight: f32 = tmpHeightRange[ToIndex1DFromCoord(otherPx)];
+  //     var otherUplift: f32 = tmpUpliftRange[ToIndex1DFromCoord(otherPx)];
 
-  //     tmpHeightRange.height[id] = max(tmpHeightRange.height[id], otherHeight);
-  //     tmpUpliftRange.height[id] = max(tmpUpliftRange.height[id], otherUplift);
+  //     tmpHeightRange[id] = max(tmpHeightRange[id], otherHeight);
+  //     tmpUpliftRange[id] = max(tmpUpliftRange[id], otherUplift);
   //   } 
   // }
 
@@ -347,8 +351,8 @@ fn main(
 
   // if (LocalInvocationID.x == 0 && LocalInvocationID.y == 0)
   // {
-  //   atomicMax(&maxPxAtomic.height, u32(tmpHeightRange.height[id] * 100));
-  //   atomicMax(&maxPxAtomic.uplift, u32(tmpUpliftRange.height[id] * 100));
+  //   atomicMax(&maxPxAtomic.height, u32(tmpHeightRange[id] * 100));
+  //   atomicMax(&maxPxAtomic.uplift, u32(tmpUpliftRange[id] * 100));
   // }
 
   // workgroupBarrier(); // synchronize
@@ -362,11 +366,11 @@ fn main(
   //   simParams.heightRangeMax = max(f32(atomicLoad(&maxPxAtomic.height)), f32(atomicLoad(&maxPxAtomic.uplift))) / 100.0;
   // }
   // workgroupBarrier(); // synchronize
-  // // Height range adjustment is done
+  // Height range adjustment is done
 
   // data.x = remap(newHeight, 0, oldMaxHeight / 100.0, 0, simParams.heightRangeMax);
   // data.z = remap(data.z, 0, oldMaxUplift / 100.0, 0, f32(atomicLoad(&maxPxAtomic.uplift)) / 100.0);
-
+  
   // data.x = newHiehgt data.z = newUplift; --> + dt * strhel -->
   data.x = newHeight;
   Write(p, data);

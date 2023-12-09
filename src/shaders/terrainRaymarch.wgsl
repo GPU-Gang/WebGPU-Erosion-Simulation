@@ -13,7 +13,8 @@ struct Terrain
     lowerLeft: vec2<f32>,   // AABB
     upperRight: vec2<f32>,  // AABB
     cellDiag: vec2<f32>,    // cell diagonal
-    heightRange: vec2<f32>  // height range
+    heightRange: vec2<f32>,  // height range
+    k: f32,                 // lipschitz constant
 }
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -174,7 +175,7 @@ fn getTerrainElevation(p: vec2<f32>) -> f32
     var height : f32 = heightCol.r; // black and white means same colour in all channels
     
     // this is between 0 and 1 --> remap to correct height range
-	return remap(height, 0.0f, 1.0f, terrain.heightRange.x, terrain.heightRange.y);
+	return height;//remap(height, 0.0f, 1.0f, terrain.heightRange.x, terrain.heightRange.y);
 }
 
 /* ============================================
