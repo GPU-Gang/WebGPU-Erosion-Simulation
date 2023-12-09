@@ -718,17 +718,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
 
     stats.begin();
 
-    // logging
-    // console.log("============== CAMERA VIEW MATRIX ==============");
-    // console.log("[" + camera.viewMatrix()[0] + "," + camera.viewMatrix()[4] + "," + camera.viewMatrix()[8] + "," + camera.viewMatrix()[3] + ",");
-    // console.log(camera.viewMatrix()[1] + "," + camera.viewMatrix()[5] + "," + camera.viewMatrix()[9] + "," + camera.viewMatrix()[7] + ",");
-    // console.log(camera.viewMatrix()[2] + "," + camera.viewMatrix()[6] + "," + camera.viewMatrix()[10] + "," + camera.viewMatrix()[11] + ",");
-    // // console.log(camera.viewMatrix()[12] + "," + camera.viewMatrix()[13] + "," + camera.viewMatrix()[14] + "," + camera.viewMatrix()[15] + "]");
-    // console.log("============== CAMERA POSITION ==============");
-    // console.log("[" + camera.getPosition()[0] + "," + camera.getPosition()[1] + "," + camera.getPosition()[2] + "]");
-    // // console.log("============== CAMERA UP ==============");
-    // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
-
     const commandEncoder = device.createCommandEncoder();
     
     // update compute bindGroups if input textures changed
