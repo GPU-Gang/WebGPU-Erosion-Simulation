@@ -1,6 +1,6 @@
 struct SimulationParams {
-  nx         : i32,     // array dimension
-  ny         : i32,
+  nx         : f32,     // array dimension
+  ny         : f32,
   lowerVertX : f32,     // lower and upper vertices of the box of the heightfield
   lowerVertY : f32,
   upperVertX : f32,
@@ -14,8 +14,6 @@ struct CustomBrushParams {
   brushPosY     : f32,
   brushScale    : f32,
   brushStrength : f32,
-  width         : i32,  // brush texture size
-  height        : i32,
   erase         : f32,  // temp boolean to erase terrain
   useCustomBrush: f32,  // boolean
   // TODO: rotation
@@ -26,6 +24,10 @@ struct AABB {
   upperRight  : vec2<f32>,
 }
 
+struct StreamBuffer {
+  data : array<f32>,
+}
+
 // Uniforms
 @group(0) @binding(0) var<uniform> simParams : SimulationParams;
 
@@ -33,13 +35,15 @@ struct AABB {
 @group(1) @binding(2) var outElevation : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(3) var inUplift : texture_2d<f32>;
 @group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
-@group(1) @binding(5) var inStream : texture_2d<f32>;
-@group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
+// @group(1) @binding(5) var inStream : texture_2d<f32>;
+// @group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(5) var<storage, read> inStream : StreamBuffer;
+@group(1) @binding(6) var<storage, read_write> outStream : StreamBuffer;
 @group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<i32>;
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
-// @group(2) @binding(2) var brushSampler : sampler;
+
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -64,9 +68,9 @@ const neighbors : array<vec2i, 8> = array<vec2i, 8>(
 );
 
 // ----------- Utilities -----------
-fn ToIndex1D(i : i32, j : i32) -> i32 { return i + simParams.nx * j; }
+fn ToIndex1D(i : i32, j : i32) -> i32 { return i + i32(simParams.nx) * j; }
 
-fn ToIndex1DFromCoord(p : vec2i) -> i32 { return p.x + simParams.nx * p.y; }
+fn ToIndex1DFromCoord(p : vec2i) -> i32 { return p.x + i32(simParams.nx) * p.y; }
 
 fn Height(p : vec2i) -> f32 {
     let color = textureLoad(inElevation, vec2u(p), 0);
@@ -91,8 +95,9 @@ fn UpliftAt(p : vec2i) -> f32 {
 }
 
 fn StreamAt(p : vec2i) -> f32 {
-    let color = textureLoad(inStream, vec2u(p), 0);
-    return color.r; // also greyscale?
+    // let color = textureLoad(inStream, vec2u(p), 0);
+    // return color.r; // also greyscale?
+    return min(inStream.data[ToIndex1DFromCoord(p)], 5000.0);
 }
 
 fn ArrayPoint(p : vec2i) -> vec2f {
@@ -106,8 +111,10 @@ fn Point3D(p : vec2i) -> vec3f {
 }
 
 fn Slope(p : vec2i, q : vec2i) -> f32 {
-  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
-  if (q.x < 0 || q.x >= simParams.nx || q.y < 0 || q.y >= simParams.ny) { return 0.0; }
+  let nx = i32(simParams.nx);
+  let ny = i32(simParams.ny);
+  if (p.x < 0 || p.x >= nx || p.y < 0 || p.y >= ny) { return 0.0; }
+  if (q.x < 0 || q.x >= nx || q.y < 0 || q.y >= ny) { return 0.0; }
   if (p.x == q.x && p.y == q.y) { return 0.0; }
 
   var d = length(ArrayPoint(q) - ArrayPoint(p));
@@ -128,6 +135,7 @@ fn GetFlowSteepest(p : vec2i, id: i32) -> vec2i {
       if (ss > maxSlope) {
         maxSlope = ss;
         d = neighbors[i];
+        idx = i;
       }
   }
 
@@ -140,7 +148,7 @@ fn GetFlowSteepestFast(i : i32) -> vec2i {
 }
 
 fn Stream(p : vec2i) -> f32 {
-  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
+  if (p.x < 0 || p.x >= i32(simParams.nx) || p.y < 0 || p.y >= i32(simParams.ny)) { return 0.0; }
   
   return StreamAt(p);
 }
@@ -150,7 +158,7 @@ fn WaterSteepest(p : vec2i, id: i32) -> f32 {
   for (var i = 0; i < 8; i++) {
       var q = p + neighbors[i];
       var fd = vec2i(0);
-      if (true)
+      if (false)
       {
         fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
       }
@@ -176,7 +184,7 @@ fn Laplacian(p : vec2i) -> f32 {
   if (i == 0) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i+1, j)) + Height(vec2i(i+2, j))) / sqrCellDiagX;
   }
-  else if (i == simParams.nx - 1) {
+  else if (i == i32(simParams.nx) - 1) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i-1, j)) + Height(vec2i(i-2, j))) / sqrCellDiagX;
   }
   else {
@@ -186,7 +194,7 @@ fn Laplacian(p : vec2i) -> f32 {
   if (j == 0) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i, j+1)) + Height(vec2i(i, j+2))) / sqrCellDiagY;
   }
-  else if (j == simParams.ny - 1) {
+  else if (j == i32(simParams.ny) - 1) {
     laplacian += (Height(p) - 2.0 * Height(vec2i(i, j-1)) + Height(vec2i(i, j-2))) / sqrCellDiagY;
   }
   else {
@@ -197,7 +205,7 @@ fn Laplacian(p : vec2i) -> f32 {
 }
 
 fn Read(p : vec2i) -> vec4f {
-  if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) {
+  if (p.x < 0 || p.x >= i32(simParams.nx) || p.y < 0 || p.y >= i32(simParams.ny)) {
     return vec4f();
   }
 
@@ -210,7 +218,8 @@ fn Read(p : vec2i) -> vec4f {
 
 fn Write(p : vec2i, data : vec4f) {
   textureStore(outElevation, p, vec4f(data.x));
-  textureStore(outStream, p, vec4f(data.y));
+  // textureStore(outStream, p, vec4f(data.y));
+  outStream.data[ToIndex1DFromCoord(p)] = data.y;
 }
 
 // Local Editing
@@ -289,9 +298,8 @@ fn main(
   var borderNode: bool = false;
   var d: vec2i;
   // Border nodes are fixed to zero (elevation and drainage)
-  if (p.x == 0 || p.x == simParams.nx - 1 ||
-      p.y == 0 || p.y == simParams.ny - 1)
-  {
+  if (p.x == 0 || p.x == i32(simParams.nx) - 1 ||
+      p.y == 0 || p.y == i32(simParams.ny) - 1) {
     data.x = 0.0;
     data.y = 1.0 * length(cellDiag);
     Write(p, data);
@@ -306,7 +314,7 @@ fn main(
   workgroupBarrier(); // workgroup barrier must happen in uniform control flow
 
   if (idX < 0 || idY < 0) { return; }
-  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
+  if (idX >= i32(simParams.nx) || idY >= i32(simParams.ny)) { return; }
 
   if (borderNode)
   {

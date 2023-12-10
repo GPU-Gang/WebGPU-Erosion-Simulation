@@ -12,6 +12,7 @@ struct Terrain
     textureSize: vec2<i32>, // texture size
     lowerLeft: vec2<f32>,   // AABB
     upperRight: vec2<f32>,  // AABB
+    shadingMode: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -274,7 +275,7 @@ fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
         return vec4(0.3f, 0.29f, 0.31f, 1.0f);
     }
 	
-    var shadingMode: i32 = 0;       // hardcoded
+    var shadingMode = terrain.shadingMode;       // hardcoded
 
 	// Terrain interior
 	if (shadingMode == 0)   // normals
