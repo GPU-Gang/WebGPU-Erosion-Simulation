@@ -20,6 +20,10 @@ const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest1', 'hfTest5'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
 
+
+const MIN_BRUSH_SCALE = 0;
+const MAX_BRUSH_SCALE = 10;
+
 // Pre-loaded textures
 let hfTextureArr : GPUTexture[] = [];
 let upliftTextureArr : GPUTexture[] = [];
@@ -268,7 +272,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     eraseTerrain: false,
     useCustomBrush: false,
     customBrush: customBrushes[0],
-    brushScale: 10,
+    brushScale: MAX_BRUSH_SCALE,
     brushStrength: 10,
     heightFieldPath: "Not in use",
     onClickFunc: function() {
@@ -314,7 +318,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'eraseTerrain');
   gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
-  gui.add(guiInputs, 'brushScale', 0, 10, 1); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushScale', MIN_BRUSH_SCALE, MAX_BRUSH_SCALE, 1); // optional numbers: min, max, step
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
   gui.add(guiInputs, 'heightFieldPath').name("Custom Height Map");
   gui.add(guiInputs, 'onClickFunc').name('Upload Custom Height Map');
@@ -814,7 +818,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         0,
         new Float32Array([
             upliftPainted[0], upliftPainted[1],
-            guiInputs.brushScale, guiInputs.brushStrength,
+            useCustom ? MAX_BRUSH_SCALE - guiInputs.brushScale : guiInputs.brushScale, guiInputs.brushStrength,
             currBrushTexture.height, currBrushTexture.width,
             erase, useCustom,
         ])
