@@ -594,7 +594,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     terrainPassEncoder.setPipeline(terrainRenderPipeline);
     // Draw main quad (terrain)
     writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
-    writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
+    writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams, shading.indexOf(guiInputs.shadingMode));
     terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
     terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
     terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
