@@ -15,7 +15,7 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest1', 'hfTest5'];
+const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest4', 'hfTest1', 'hfTest5'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
 const shading = ['Normal', 'Lambertian'];
@@ -49,6 +49,7 @@ let terrainQuad: TerrainQuad;
 //state-dependent flags
 let usingCustomHeightMap = false;
 let customHfImageBitmap = null;
+let renderBundleNeedsToBeUpdated = true;
 
 function setupGeometry(device: GPUDevice)
 {
@@ -297,7 +298,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         }
       });
       input.click();
-    }
+    },
+    useRenderBundles: false
   };
 
   let inputsChanged = 0;
@@ -326,6 +328,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
   gui.add(guiInputs, 'heightFieldPath').name("Custom Height Map");
   gui.add(guiInputs, 'onClickFunc').name('Upload Custom Height Map');
+  gui.add(guiInputs, 'useRenderBundles').name("Use Render Bundles");
   
 
   //////////////////////////////////////////////////////////////////////////////
@@ -575,6 +578,64 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       upliftPainted[1] = py;
   }
 
+  const terrainRenderPassDescriptor: GPURenderPassDescriptor = {
+    colorAttachments: [
+      {
+        view: undefined, 
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+        loadOp: 'clear',
+        storeOp: 'store',
+      },
+    ]
+  };
+
+  function renderTerrain(terrainPassEncoder: GPURenderPassEncoder | GPURenderBundleEncoder)
+  {
+    terrainPassEncoder.setPipeline(terrainRenderPipeline);
+    // Draw main quad (terrain)
+    writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
+    writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams, shading.indexOf(guiInputs.shadingMode));
+    terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
+    terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
+    terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
+    terrainPassEncoder.setVertexBuffer(1, terrainQuad.normalBuffer);
+    terrainPassEncoder.setVertexBuffer(2, terrainQuad.uvBuffer);
+    terrainPassEncoder.drawIndexed(terrainQuad.count);
+  }
+
+  function renderQuad(uiPassEncoder: GPURenderPassEncoder | GPURenderBundleEncoder)
+  {
+    uiPassEncoder.setPipeline(uiRenderPipeline);
+    // Draw input texture as UI
+    writeMVPUniformBuffer(device, uniformBuffer, offset, inputHeightmapDisplayQuad.getModelMatrix(), camera, true);
+    uiPassEncoder.setBindGroup(0, inputHeightmapDisplayQuad.bindGroup);
+    uiPassEncoder.setIndexBuffer(inputHeightmapDisplayQuad.indexBuffer, "uint32");
+    uiPassEncoder.setVertexBuffer(0, inputHeightmapDisplayQuad.posBuffer);
+    uiPassEncoder.setVertexBuffer(1, inputHeightmapDisplayQuad.normalBuffer);
+    uiPassEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
+    uiPassEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
+  }
+
+  let terrainRenderBundle;
+  function updateRenderBundle() {
+    const renderBundleEncoder = device.createRenderBundleEncoder({
+      colorFormats: [presentationFormat],
+      //depthStencilFormat: 'depth24plus',
+    });
+    renderTerrain(renderBundleEncoder);
+    terrainRenderBundle = renderBundleEncoder.finish();
+  }
+
+  let quadRenderBundle;
+  function updateQuadRenderBundle() {
+    const renderBundleEncoder = device.createRenderBundleEncoder({
+      colorFormats: [presentationFormat],
+      //depthStencilFormat: 'depth24plus',
+    });
+    renderQuad(renderBundleEncoder);
+    quadRenderBundle = renderBundleEncoder.finish();
+  }
+
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;    
@@ -589,7 +650,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       upliftPainted[1] = -1;
     }
 
-    stats.begin();
+    stats.begin();    
 
     const commandEncoder = device.createCommandEncoder();
     
@@ -606,7 +667,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           streamBuffers[0].destroy();
           streamBuffers[1].destroy();
           steepestFlowBuffer.destroy();
-        }
+        }        
 
         if(usingCustomHeightMap) //use user-uploaded height field
         {
@@ -751,12 +812,18 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
         brushProperties = device.createBindGroup(brushBindGroupDescriptor);  
       }
-
+      renderBundleNeedsToBeUpdated = true;
       inputsChanged = -1;
     }
 
     terrainQuad.createTerrainBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex], terrainUnifBuffer);
     inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
+
+    if(renderBundleNeedsToBeUpdated && guiInputs.useRenderBundles) {      
+      updateRenderBundle();
+      updateQuadRenderBundle();
+      renderBundleNeedsToBeUpdated = false;
+    }
 
     //compute pass goes in the following stub
     {
@@ -847,6 +914,17 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     }
     //Terrain render pass goes in the following stub
     {
+      if(guiInputs.useRenderBundles)
+      {
+        terrainRenderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
+        const terrainPassEncoder = commandEncoder.beginRenderPass(terrainRenderPassDescriptor);
+        terrainPassEncoder.executeBundles([terrainRenderBundle, quadRenderBundle]);
+        renderTerrain(terrainPassEncoder);
+        renderQuad(terrainPassEncoder);
+        terrainPassEncoder.end();
+      }
+      else
+      {
       const terrainPassEncoder = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
@@ -872,8 +950,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
 
       terrainPassEncoder.end();
     }
+    }
     // UI render pass goes under the following stub
     {
+      if(!guiInputs.useRenderBundles)
+      {
       const uiPassEncoder = commandEncoder.beginRenderPass({
         colorAttachments: [
           {
@@ -895,6 +976,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       uiPassEncoder.setVertexBuffer(2, inputHeightmapDisplayQuad.uvBuffer);
       uiPassEncoder.drawIndexed(inputHeightmapDisplayQuad.count);
       uiPassEncoder.end();
+      }
     }
 
     device.queue.submit([commandEncoder.finish()]);
