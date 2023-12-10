@@ -1,7 +1,7 @@
 class TerrainParams
 {
-    nx: number = 256;
-    ny: number = 256;
+    nx: number = 4500;
+    ny: number = 4500;
     lowerVertX: number = -5;
     lowerVertY: number = -5;
     upperVertX: number = 5;

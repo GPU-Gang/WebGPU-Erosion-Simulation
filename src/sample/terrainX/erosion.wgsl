@@ -35,7 +35,7 @@ struct AABB {
 @group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(5) var inStream : texture_2d<f32>;
 @group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
-@group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<vec2i>;
+@group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<i32>;
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
@@ -114,15 +114,14 @@ fn Slope(p : vec2i, q : vec2i) -> f32 {
   return (Height(q) - Height(p)) / d;
 }
 
-fn SetFlowSteepest(i: i32, data: vec2i)
+fn SetFlowSteepest(i: i32, idx: i32)
 {
-  var dataXIdx = i * 2 + 0;
-  var dataYIdx = i * 2 + 1;
-  steepestFlowBuffer[i] = data;
+  steepestFlowBuffer[i] = idx;
 }
 
-fn GetFlowSteepest(p : vec2i) -> vec2i {
-  var d = vec2i();
+fn GetFlowSteepest(p : vec2i, id: i32) -> vec2i {
+  var d = vec2();
+  var idx: i32;
   var maxSlope = 0.0;
   for (var i = 0; i < 8; i++) {
       var ss = Slope(p + neighbors[i], p);
@@ -131,11 +130,13 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
         d = neighbors[i];
       }
   }
+
+  SetFlowSteepest(id, idx);
   return d;
 }
 
 fn GetFlowSteepestFast(i : i32) -> vec2i {
-  return steepestFlowBuffer[i];
+  return neighbors[steepestFlowBuffer[i]];
 }
 
 fn Stream(p : vec2i) -> f32 {
@@ -144,18 +145,18 @@ fn Stream(p : vec2i) -> f32 {
   return StreamAt(p);
 }
 
-fn WaterSteepest(p : vec2i) -> f32 {
+fn WaterSteepest(p : vec2i, id: i32) -> f32 {
   var water = 0.0;
   for (var i = 0; i < 8; i++) {
       var q = p + neighbors[i];
       var fd = vec2i(0);
-      if (false)
+      if (true)
       {
         fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
       }
       else
       {
-        fd = GetFlowSteepest(q);
+        fd = GetFlowSteepest(q, id);
       }
       if ((q + fd).x == p.x && (q + fd).y == p.y) {
         water += Stream(q);
@@ -278,8 +279,6 @@ fn main(
 ) {
   let idX = i32(GlobalInvocationID.x);
   let idY = i32(GlobalInvocationID.y);
-  // if (idX < 0 || idY < 0) { return; }
-  // if (idX >= simParams.nx || idY >= simParams.ny) { return; }
 
   var id : i32 = ToIndex1D(idX, idY);
   var p : vec2i = vec2i(idX, idY);
@@ -301,11 +300,13 @@ fn main(
   else
   {
     // Erosion at p (relative to steepest)
-    d = GetFlowSteepest(p);
-    SetFlowSteepest(id, d);
+    d = GetFlowSteepest(p, id);
   }
 
   workgroupBarrier(); // workgroup barrier must happen in uniform control flow
+
+  if (idX < 0 || idY < 0) { return; }
+  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
 
   if (borderNode)
   {
@@ -313,7 +314,7 @@ fn main(
   }
 
   // Flows accumulation at p
-  var waterIncr = WaterSteepest(p);
+  var waterIncr = WaterSteepest(p, id);
 
   data.y = 1.0 * length(cellDiag);
   data.y += waterIncr;

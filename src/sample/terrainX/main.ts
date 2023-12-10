@@ -16,7 +16,7 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest1', 'hfTest2'];
+const heightfields = ['hftest5', 'hftest6', 'hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
@@ -417,7 +417,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
     { texture: hfTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+    [imageBitmap.width, imageBitmap.height]
   );
   
   // pre-load all the uplift textures
@@ -504,21 +504,32 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         GPUTextureUsage.RENDER_ATTACHMENT,
     });
   });
-  device.queue.copyExternalImageToTexture(
-    { source: imageBitmap },
-    { texture: streamTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+
+  var zeros = new Float32Array(srcWidth * srcHeight * 4); // 4 for 4 channels
+  zeros.fill(0);
+
+  device.queue.writeTexture(
+    {texture: streamTextures[currSourceTexIndex],},
+    zeros,
+    {
+      offset: 0,
+      bytesPerRow: srcWidth * 4 * 4,  // 4 channels of 4-byte (32 bit) size floats
+      rowsPerImage: srcHeight
+    },
+    { width: srcWidth, height: srcHeight}
   );
 
   // steepest flow texture
   const steepestFlowBuffer= device.createBuffer({
-    size: srcWidth * srcHeight * 2 * 4,   // same resolution as heightmap
+    size: srcWidth * srcHeight * 4,   // same resolution as heightmap
     usage:
       GPUBufferUsage.COPY_DST |
       GPUBufferUsage.STORAGE
   });
-  var zeros = new Float32Array(srcWidth * srcHeight * 2); // 2 for 2 channels
+
+  zeros = new Float32Array(srcWidth * srcHeight);
   zeros.fill(0);
+
   device.queue.writeBuffer(
     steepestFlowBuffer,
     0, 
@@ -646,7 +657,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         resource: 
         {
            buffer: steepestFlowBuffer,
-        },      }
+        },      
+      }
     ],
   };
   
