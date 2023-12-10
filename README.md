@@ -63,6 +63,62 @@ requires an installation of [Node.js](https://nodejs.org/en/).
   sources: `npm start`. You can navigate to http://localhost:3000 to view the project.
 - To compile the project: `npm run build`.
 
+## Performance Analysis
+
+### 1. Finding a good workgroup size
+
+*Performance data captured on Windows 11 Home, AMD Ryzen 7 5800H @ 3.2GHz 16 GB, Nvidia GeForce RTX 3060 Laptop GPU 6 GB, running on Google Chrome*
+
+For analysing the impact of workgroup size on performance, a 2250x2250 texture was used with varying workgroup sizes.
+
+| FPS vs workgroup size |
+|:-:|
+|![](img/opt5.png)|
+
+8x8 is the optimal workgroup size, as there are no performance gains after that. This is the workgroup size used for the rest of the analysis.
+
+### 2. Steepest flow recalculation vs buffer
+
+*Performance data captured on Windows 11 Home, AMD Ryzen 7 5800H @ 3.2GHz 16 GB, Nvidia GeForce RTX 3060 Laptop GPU 6 GB, running on Google Chrome*
+
+The steepest flow for the erosion is calculated not once, but twice, for each pixel. This calculation involves sampling a the neighbours of the current pixel in a `25x25` matrix area. This becomes costly with increasing texture resolutions.
+
+Calculating this steepest flow only once, and then storing it in a buffer for reuse later, boosts performance significantly. This performance boost is more apparent with higher resolution textures, as with lower resolution textures the **total** number of neighbourhood samples across all pixels during a frame are not very high.
+
+| FPS: Steepest flow calculation optimisation using storage buffer |
+|:-:|
+|![](img/opt1.png)|
+
+This does have an impact on memory with greater texture sizes (due to the additional steepest flow buffer), but this is acceptable for the performance gains.
+
+| Memory Usage (MBs): Steepest flow calculation optimisation using storage buffer |
+|:-:|
+|![](img/opt4.png)|
+
+### 3. `textureSample` vs `textureSampleLevel`
+
+*Performance data captured on Windows 11 Home, AMD Ryzen 7 5800H @ 3.2GHz 16 GB, Nvidia GeForce RTX 3060 Laptop GPU 6 GB, running on Google Chrome*
+
+Our first iteration of the terrain rendering using raymarching used `textureSample`.
+
+`textureSample` requires texture sampling to happen in uniform control flow. This means that the terrain raymarching could not use bounding box optimisations to only sample the heightfield when the ray hit the bounding box of the terrain. The texture needed to be sampled for every ray (every pixel!) and every frame. This also meant that many calculations that should only happen when the ray actually hit the terrain, were happening at all times. This slowed down performance significantly!
+
+`textureSampleLevel` is hardware accelerated, and does not have the same uniform control flow requirement as `textureSample`. After making these changes we noticed significant performance boosts.
+
+| FPS: Axis-Aligned Bounding Box optimisations |
+|:-:|
+|![](img/opt2.png)|
+
+### Both optimizations combined
+
+While both the steepest flow buffer and bounding box optimisations improve performance, their real benefit shows when both are combined.
+
+| FPS: both optimisations |
+|:-:|
+|![](img/opt3.png)|
+
+We're able to get ~40 fps on the web even with 4.5k size textures when both these optimisations are enabled!
+
 ## Credits
 
 - 3d-view-controls npm package
