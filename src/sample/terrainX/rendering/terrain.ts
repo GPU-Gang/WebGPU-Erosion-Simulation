@@ -1,4 +1,3 @@
-import { mat4, Vec3, vec3, vec4, Vec4 } from 'wgpu-matrix';
 import Quad from './quad';
 
 
