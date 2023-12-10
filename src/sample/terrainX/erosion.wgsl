@@ -37,13 +37,13 @@ struct StreamBuffer {
 @group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
 // @group(1) @binding(5) var inStream : texture_2d<f32>;
 // @group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
-@group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<i32>;
 @group(1) @binding(5) var<storage, read> inStream : StreamBuffer;
 @group(1) @binding(6) var<storage, read_write> outStream : StreamBuffer;
+@group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<i32>;
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
-// @group(2) @binding(2) var brushSampler : sampler;
+
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -97,8 +97,7 @@ fn UpliftAt(p : vec2i) -> f32 {
 fn StreamAt(p : vec2i) -> f32 {
     // let color = textureLoad(inStream, vec2u(p), 0);
     // return color.r; // also greyscale?
-    // return min(inStream.data[ToIndex1DFromCoord(p)], 1000.0);
-    return inStream.data[ToIndex1DFromCoord(p)];
+    return min(inStream.data[ToIndex1DFromCoord(p)], 5000.0);
 }
 
 fn ArrayPoint(p : vec2i) -> vec2f {
@@ -136,6 +135,7 @@ fn GetFlowSteepest(p : vec2i, id: i32) -> vec2i {
       if (ss > maxSlope) {
         maxSlope = ss;
         d = neighbors[i];
+        idx = i;
       }
   }
 
@@ -158,7 +158,7 @@ fn WaterSteepest(p : vec2i, id: i32) -> f32 {
   for (var i = 0; i < 8; i++) {
       var q = p + neighbors[i];
       var fd = vec2i(0);
-      if (true)
+      if (false)
       {
         fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
       }
