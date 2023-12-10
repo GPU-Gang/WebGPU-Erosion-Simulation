@@ -20,22 +20,13 @@ const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest1', 'hfTest5'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
 
-enum upliftTextureAtlas {
-  alpes_noise,
-  lambda,
-}
-enum brushTextureAtlas {
-  pattern1_bg,
-  pattern2_bg,
-  pattern3_bg,
-}
 // Pre-loaded textures
 let hfTextureArr : GPUTexture[] = [];
 let upliftTextureArr : GPUTexture[] = [];
 let brushTextureArr : GPUTexture[] = [];
 
 let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
-let currUpliftTexture : GPUTexture;
+let upliftTextures : GPUTexture[] = []; // Ping-pong buffers for uplift fields
 let currBrushTexture : GPUTexture;
 let streamTextures : GPUTexture[] = [];
 let steepestFlowBuffer : GPUBuffer;
@@ -305,15 +296,15 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   let inputsChanged = 0;
   const onChangeTextureHf = () => {
     inputsChanged = 0;
+    usingCustomHeightMap = false;
   };
 
   const onChangeTextureUplift = () => {
-    currUpliftTexture = upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]];
     inputsChanged = 1;
   };
 
   const onChangeTextureBrush = () => {
-    currBrushTexture = brushTextureArr[brushTextureAtlas[guiInputs.customBrush]];
+    currBrushTexture = brushTextureArr[customBrushes.indexOf(guiInputs.customBrush)];
     inputsChanged = 2;
   };
 
@@ -435,7 +426,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   let imageBitmap;
 
   // heightmap
-
   //pre-load a set of existing heightfield textures
   heightfields.forEach(async heightFieldFileName =>{
     response = await fetch(hfDir + heightFieldFileName + '.png');
@@ -449,64 +439,32 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         `hf_${heightFieldFileName}`
       )
     );
-  });  
+  });
   
   // uplift
-  response = await fetch(upliftDir + guiInputs.uplift + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-
-  const upliftTextures = [0, 1].map((index) => {
-    return createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      false,
-      `uplift_${guiInputs.uplift}_${index}`
+  //pre-load a set of existing uplift textures
+  uplifts.forEach(async upliftFileName =>{
+    response = await fetch(upliftDir + upliftFileName + '.png');
+    imageBitmap = await createImageBitmap(await response.blob());
+    upliftTextureArr.push(
+      createTextureFromImage(
+        device,
+        imageBitmap,
+        false,
+        true,
+        `uplift_${upliftFileName}`
+      )
     );
   });
-
-  device.queue.copyExternalImageToTexture(
-    { source: imageBitmap },
-    { texture: upliftTextures[currSourceTexIndex] },
-    [imageBitmap.width, imageBitmap.height]
-  );
-  
-  // pre-load all the uplift textures
-  currUpliftTexture = createTextureFromImage(
-    device,
-    imageBitmap,
-    true, // keep it as greyscale for now cuz this is not the actual buffer but just a one-time feed of input
-    true,
-    `uplift_${guiInputs.uplift}`
-  );
-  upliftTextureArr.push(currUpliftTexture);
-  
-  let nextTex = uplifts[1];
-  response = await fetch(upliftDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  upliftTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      true,
-      true,
-      `uplift_${nextTex}`
-    )
-  );
 
   // stream area map
   response = await fetch(streamPath);
   imageBitmap = await createImageBitmap(await response.blob());
 
   // custom brush texture
-  brushTextureArr = await Promise.all([
-    await createTextureFromImageWithMip(device,
-        `${upliftDir}${customBrushes[0]}.png`, {mips: true, flipY: false}),
-    await createTextureFromImageWithMip(device,
-        `${upliftDir}${customBrushes[1]}.png`, {mips: true, flipY: false}),
-    await createTextureFromImageWithMip(device,
-        `${upliftDir}${customBrushes[2]}.png`, {mips: true, flipY: false}),
-  ]);
+  const burshPromises = customBrushes.map(async brush => 
+    await createTextureFromImageWithMip(device,`${upliftDir}${brush}.png`, {mips: true, flipY: false}));
+    brushTextureArr = await Promise.all(burshPromises);
   currBrushTexture = brushTextureArr[0];
 
   //////////////////////////////////////////////////////////////////////////////
@@ -632,12 +590,14 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     
     // update compute bindGroups if input textures changed
     if (inputsChanged > -1) {
-      if (inputsChanged == 0) {
-        let currHfTexture;
+      if (inputsChanged == 0 || inputsChanged == 1) {
+        let currHfTexture, currUpliftTexture;
         //this check is necessary for the first ever iteration
         if(hfTextures[0] && hfTextures[1]) {
           hfTextures[0].destroy();
           hfTextures[1].destroy();
+          upliftTextures[0].destroy();
+          upliftTextures[1].destroy();
           streamTextures[0].destroy();
           streamTextures[1].destroy();
           steepestFlowBuffer.destroy();
@@ -649,10 +609,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             device,
             customHfImageBitmap,
             false,
-            true,
-            `hf_${customHfImageBitmap}`
+            true
           )
-          usingCustomHeightMap = false;
         }
         else //use one of the pre-loaded height fields that the user selected from the dropdown
         {
@@ -665,30 +623,51 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           });
           currHfTexture = hfTextureArr[currHfIdx];
           if(customHfImageBitmap) {
-            customHfImageBitmap.close();
+            customHfImageBitmap.close(); //free up resources from custom uploaded height field, if any
           }
         }
+
+        //figure out the current uplift texture in use
+        {
+          let currUpliftIdx = 0;        
+          upliftTextureArr.forEach(function (upliftTexture, index) {
+            if(upliftTexture.label == `uplift_${guiInputs.uplift}`) {
+              currUpliftIdx = index;
+            }
+          });
+          currUpliftTexture = upliftTextureArr[currUpliftIdx];
+        }
     
+        var hfWidth = currHfTexture.width;
+        var hfHeight = currHfTexture.height;
+
         //after destroying, create them again with the different size
         hfTextures = [0, 1].map((index) => {
           return createTextureOfSize(
             device,
-            currHfTexture.width,
-            currHfTexture.height,
+            hfWidth,
+            hfHeight,
             false,
             `hf_${guiInputs.heightfield}_${index}`
-          );          
+          );
         });
-        
-        var hfWidth = currHfTexture.width;
-        var hfHeight = currHfTexture.height;
+
+        upliftTextures = [0, 1].map((index) => {
+          return createTextureOfSize(
+            device,
+            currUpliftTexture.width,
+            currUpliftTexture.height,
+            false,
+            `uplift_${guiInputs.uplift}_${index}`
+          );
+        });
 
         // ping-pong buffers for fluvial calculation
         streamTextures = [0, 1].map(() => {
           return createTextureOfSize(
             device,
-            currHfTexture.width,
-            currHfTexture.height,
+            hfWidth,
+            hfHeight,
             false,
           );
         });
@@ -722,7 +701,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           steepestFlowBuffer,
           0, 
           zeros.buffer,
-          );
+        );
 
         //need to create these bind groups here instead of outside frame() since these are dependent on hfTextures
         terrainQuad.bindGroupCreated = false;
@@ -740,25 +719,22 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             height: currHfTexture.height,
           },
         );
+
+        commandEncoder.copyTextureToTexture(
+          {            
+            texture: currUpliftTexture, // source
+          },
+          {
+            texture: upliftTextures[currSourceTexIndex], // destination
+          },
+          {
+            width: currUpliftTexture.width,
+            height: currUpliftTexture.height,
+          },
+        );
       }
-
-	    // TODO: fix
-      // computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
-      // computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
-      // computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
-      // computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
-
-      // if (inputsChanged == 1) {
-      //   computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
-      //   computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();  
-      // }
-      
-      // computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
-      // computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
-      // computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
       
       if (inputsChanged == 2) {
-        console.log(currBrushTexture.label);
         brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
         brushProperties = device.createBindGroup(brushBindGroupDescriptor);  
       }
@@ -786,7 +762,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           },
           {
             binding: 3,
-            resource: upliftTextures[currSourceTexIndex].createView(), // currUpliftTexture
+            resource: upliftTextures[currSourceTexIndex].createView(),
           },
           {
             binding: 4,
