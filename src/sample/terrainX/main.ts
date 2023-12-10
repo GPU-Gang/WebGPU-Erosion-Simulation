@@ -16,7 +16,7 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest6', 'hfTest1', 'hfTest2'];
+const heightfields = ['hfTest4', 'hfTest1', 'hfTest2'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1', 'pattern2', 'pattern3']; // currently only affects uplift map
 enum hfTextureAtlas {
@@ -969,8 +969,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         computePass.dispatchWorkgroups(
           //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1, //dispatch size from paper doesn't work for our case
           //(Math.max(simulationParams.nx, simulationParams.ny) / 8) + 1
-          Math.ceil(1201 / 8),
-          Math.ceil(1201 / 8),
+          Math.ceil(terrainParams.nx / 8),
+          Math.ceil(terrainParams.ny / 8),
           1
         );
         computePass.end();
@@ -1034,7 +1034,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       device.queue.submit([commandEncoder.finish()]);
 
       // CPU readback happens under the following stub
-      // await updateRanges();
+      await updateRanges();
 
       stats.end();
 
