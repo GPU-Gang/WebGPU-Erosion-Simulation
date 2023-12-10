@@ -16,7 +16,7 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hftest5', 'hftest6', 'hfTest1', 'hfTest2'];
+const heightfields = ['hfTest1', 'hfTest2','hftest5', 'hftest6'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
