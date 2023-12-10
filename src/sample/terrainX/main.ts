@@ -16,7 +16,7 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest1', 'hfTest2'];
+const heightfields = ['hfTest1', 'hfTest2','hftest5', 'hftest6'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
@@ -40,6 +40,7 @@ let brushTextureArr : GPUTexture[] = [];
 let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
 let currUpliftTexture : GPUTexture;
 let currBrushTexture : GPUTexture;
+let flowSteepestTex : GPUTexture;
 
 let currSourceTexIndex = 0; // Ping-Pong texture index
 let clicked = false;
@@ -416,7 +417,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   device.queue.copyExternalImageToTexture(
     { source: imageBitmap },
     { texture: hfTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+    [imageBitmap.width, imageBitmap.height]
   );
   
   // pre-load all the uplift textures
@@ -503,11 +504,37 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         GPUTextureUsage.RENDER_ATTACHMENT,
     });
   });
-  device.queue.copyExternalImageToTexture(
-    { source: imageBitmap },
-    { texture: streamTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+
+  var zeros = new Float32Array(srcWidth * srcHeight * 4); // 4 for 4 channels
+  zeros.fill(0);
+
+  device.queue.writeTexture(
+    {texture: streamTextures[currSourceTexIndex],},
+    zeros,
+    {
+      offset: 0,
+      bytesPerRow: srcWidth * 4 * 4,  // 4 channels of 4-byte (32 bit) size floats
+      rowsPerImage: srcHeight
+    },
+    { width: srcWidth, height: srcHeight}
   );
+
+  // steepest flow texture
+  const steepestFlowBuffer= device.createBuffer({
+    size: srcWidth * srcHeight * 4,   // same resolution as heightmap
+    usage:
+      GPUBufferUsage.COPY_DST |
+      GPUBufferUsage.STORAGE
+  });
+
+  zeros = new Float32Array(srcWidth * srcHeight);
+  zeros.fill(0);
+
+  device.queue.writeBuffer(
+    steepestFlowBuffer,
+    0, 
+    zeros.buffer,
+    );
 
   // custom brush texture
   brushTextureArr = await Promise.all([
@@ -523,7 +550,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
   //////////////////////////////////////////////////////////////////////////////
-  
+
   const erosionComputePipeline = device.createComputePipeline({
     layout: 'auto',
     compute: {
@@ -587,6 +614,13 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         binding: 6,
         resource: streamTextures[1].createView(),
       },
+      {
+        binding: 7,
+        resource: 
+        {
+           buffer: steepestFlowBuffer,
+        },
+      }
     ],
   };
 
@@ -618,6 +652,13 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         binding: 6,
         resource: streamTextures[0].createView(),
       },
+      {
+        binding: 7,
+        resource: 
+        {
+           buffer: steepestFlowBuffer,
+        },      
+      }
     ],
   };
   
@@ -717,17 +758,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     }
 
     stats.begin();
-
-    // logging
-    // console.log("============== CAMERA VIEW MATRIX ==============");
-    // console.log("[" + camera.viewMatrix()[0] + "," + camera.viewMatrix()[4] + "," + camera.viewMatrix()[8] + "," + camera.viewMatrix()[3] + ",");
-    // console.log(camera.viewMatrix()[1] + "," + camera.viewMatrix()[5] + "," + camera.viewMatrix()[9] + "," + camera.viewMatrix()[7] + ",");
-    // console.log(camera.viewMatrix()[2] + "," + camera.viewMatrix()[6] + "," + camera.viewMatrix()[10] + "," + camera.viewMatrix()[11] + ",");
-    // // console.log(camera.viewMatrix()[12] + "," + camera.viewMatrix()[13] + "," + camera.viewMatrix()[14] + "," + camera.viewMatrix()[15] + "]");
-    // console.log("============== CAMERA POSITION ==============");
-    // console.log("[" + camera.getPosition()[0] + "," + camera.getPosition()[1] + "," + camera.getPosition()[2] + "]");
-    // // console.log("============== CAMERA UP ==============");
-    // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
 
     const commandEncoder = device.createCommandEncoder();
     
