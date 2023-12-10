@@ -230,7 +230,7 @@ fn DrawBrush(p : vec2i) -> bool {
          (aabb.lowerLeft.y < ArrayPointBrush(p).y && ArrayPointBrush(p).y < aabb.upperRight.y);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(8, 8, 1)
 fn main(
   @builtin(workgroup_id) WorkGroupID : vec3<u32>,
   @builtin(local_invocation_id) LocalInvocationID : vec3<u32>,
