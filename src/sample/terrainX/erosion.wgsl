@@ -148,7 +148,15 @@ fn WaterSteepest(p : vec2i) -> f32 {
   var water = 0.0;
   for (var i = 0; i < 8; i++) {
       var q = p + neighbors[i];
-      var fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
+      var fd = vec2i(0);
+      if (false)
+      {
+        fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
+      }
+      else
+      {
+        fd = GetFlowSteepest(q);
+      }
       if ((q + fd).x == p.x && (q + fd).y == p.y) {
         water += Stream(q);
       }
