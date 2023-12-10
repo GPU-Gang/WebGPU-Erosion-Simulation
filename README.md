@@ -119,6 +119,18 @@ While both the steepest flow buffer and bounding box optimisations improve perfo
 
 We're able to get ~40 fps on the web even with 4.5k size textures when both these optimisations are enabled!
 
+### [Unused] Parallel Reduction
+
+*Performance data captured on Windows 11 Home, AMD Ryzen 7 5800H @ 3.2GHz 16 GB, Nvidia GeForce RTX 3060 Laptop GPU 6 GB, running on Google Chrome*
+
+There is an unused implementation of parallel reduction in the branch `fixHeightrange`. This is used to calculate the highest height across all pixels in the heightfield. We compare a simple CPU side version of this to the parallel reduction version of this. None of the other optimisations mentioned above were active during this analysis. This parallel reduction is unused because the need to use this calculation was made redundant during a different change in the project.
+
+| FPS: CPU calculation vs parallel reduction |
+|:-:|
+|![](img/opt6.png)|
+
+It is evident that parallel reduction is significantly faster for texture resolutions up until 2k textures. Around 4.5k texture resolution the benefits gained from parallel reduction are not enough by themselves, and must be combined with other optimisations mentioned above.
+
 ## Credits
 
 - 3d-view-controls npm package
