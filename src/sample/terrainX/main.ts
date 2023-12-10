@@ -7,7 +7,7 @@ import terrainRaymarch from '../../shaders/terrainRaymarch.wgsl';
 import Quad from './rendering/quad';
 import TerrainQuad from './rendering/terrain';
 import TerrainParams from './terrainParams';
-const Stats = require('stats-js');
+
 import {createTextureFromImageWithMip} from './mipmaps';
 
 
@@ -16,16 +16,16 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest1', 'hfTest2'];
-const uplifts = ['lambda', 'alpes_noise'];
-const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
-enum hfTextureAtlas {
-  hfTest1,
-  hfTest2
-}
+const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest1', 'hfTest5'];
+const uplifts = ['alpes_noise', 'lambda'];
+const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
+
+const MIN_BRUSH_SCALE = 0;
+const MAX_BRUSH_SCALE = 10;
+
 enum upliftTextureAtlas {
-  lambda,
   alpes_noise,
+  lambda,
 }
 enum brushTextureAtlas {
   pattern1_bg,
@@ -40,8 +40,11 @@ let brushTextureArr : GPUTexture[] = [];
 let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
 let currUpliftTexture : GPUTexture;
 let currBrushTexture : GPUTexture;
+let streamTextures : GPUBuffer[] = [];
+let steepestFlowBuffer : GPUBuffer;
 
-let currSourceTexIndex = 0; // Ping-Pong texture index
+// Ping-Pong texture index
+let currSourceTexIndex = 0;
 let clicked = false;
 let clickX = 0;
 let clickY = 0;
@@ -60,15 +63,18 @@ function setupGeometry(device: GPUDevice)
   terrainQuad.create(device);
 }
 
-function rayPlaneIntersection(rayOrigin: Vec3, rayDir: Vec3)
+function rayPlaneIntersection(rayOrigin: Vec3, rayDir: Vec3, terrainParams: TerrainParams)
 {
-  // the plane of terrain quad is initially screen-facing so its normal is assumed to be the -ve Z axis i.e. facing the camera
+  // the plane of terrain quad is initially screen-facing so its normal is assumed to be facing the camera
   let planeNormal = vec4.create(0,1,0,0);
-  //vec4.transformMat4(planeNormal, mat4.inverse(mat4.transpose(mvp)), planeNormal);
-  let c = vec4.create(0,0,0,0);//vec4.transformMat4(vec4.create(0,0,0,0), mat4.inverse(mvp));
+  let c = vec4.create(0,0,0,0);
   let t = vec3.dot(planeNormal,vec3.sub(c, rayOrigin)) / vec3.dot(planeNormal, rayDir);
   let interesection = vec3.add(rayOrigin, vec3.mulScalar(rayDir, t));
-  if(t < 0 || interesection[0] < -5 || interesection[0] > 5 || interesection[2] < -5 || interesection[2] > 5) {
+  if(t < 0 ||
+    interesection[0] < terrainParams.lowerVertX ||
+    interesection[0] > terrainParams.upperVertX ||
+    interesection[2] < terrainParams.lowerVertY ||
+    interesection[2] > terrainParams.upperVertY) {
       return [false, null];
     }
     return [true, interesection];
@@ -215,13 +221,28 @@ function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, 
     0,
     new Float32Array([
       // texture size
-      terrainParams.nx, terrainParams.ny,
+      hfTextures[currSourceTexIndex].width, hfTextures[currSourceTexIndex].height,
       // AABB Lower Left Corner
       terrainParams.lowerVertX, terrainParams.lowerVertY,
       // AABB Upper Right Corner
       terrainParams.upperVertX, terrainParams.upperVertY,
     ])
   );
+}
+
+function createTextureOfSize(device: GPUDevice, width: number, height: number, greyscale: boolean, label?:string) {
+  return device.createTexture({
+    label: label,
+    size: [width, height, 1],
+    format: greyscale ? 'r8unorm' : 'rgba8unorm',
+    mipLevelCount: 1,
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT | 
+      (!greyscale && GPUTextureUsage.STORAGE_BINDING) |
+      (!greyscale && GPUTextureUsage.COPY_SRC),
+  });
 }
 
 const createTextureFromImage = (
@@ -231,25 +252,17 @@ const createTextureFromImage = (
   enqueue: boolean,
   label? : string,
 ) => {
-  const texture = device.createTexture({
-    label: label,
-    size: [bitmap.width, bitmap.height, 1],
-    format: greyscale ? 'r8unorm' : 'rgba8unorm',
-    mipLevelCount: 1,//numMipLevels,
-    usage:
-      GPUTextureUsage.TEXTURE_BINDING |
-      GPUTextureUsage.COPY_DST |
-      GPUTextureUsage.RENDER_ATTACHMENT | 
-      (!greyscale && GPUTextureUsage.STORAGE_BINDING) |
-      (!greyscale && GPUTextureUsage.COPY_SRC),
-  });
+  const texture = createTextureOfSize(device, bitmap.width, bitmap.height, greyscale, label);
+
   enqueue && device.queue.copyExternalImageToTexture(
     { source: bitmap },
     { texture: texture },
     [bitmap.width, bitmap.height]
   );
+  
   return texture;
 };
+
 
 const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   //////////////////////////////////////////////////////////////////////////////
@@ -263,11 +276,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     eraseTerrain: false,
     useCustomBrush: false,
     customBrush: customBrushes[0],
-    brushScale: 5,
-    brushStrength: 5, 
+    brushScale: MAX_BRUSH_SCALE,
+    brushStrength: 10, 
   };
 
-  let inputsChanged = -1;
+  let inputsChanged = 0;
   const onChangeTextureHf = () => {
     inputsChanged = 0;
   };
@@ -287,7 +300,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'eraseTerrain');
   gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
-  gui.add(guiInputs, 'brushScale', 0, 10, 1); // optional numbers: min, max, step
+  gui.add(guiInputs, 'brushScale', MIN_BRUSH_SCALE, MAX_BRUSH_SCALE, 1); // optional numbers: min, max, step
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
 
   //////////////////////////////////////////////////////////////////////////////
@@ -358,12 +371,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     minFilter: 'linear',
   });
 
-  const depthTexture = device.createTexture({
-    size: [canvas.width, canvas.height],
-    format: 'depth24plus',
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  });
-
   // Uniform Buffers
   const offset = 256; // padding must be 256-byte aligned??
   const uniformBufferSize = offset +
@@ -398,52 +405,26 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   // Texture
   //////////////////////////////////////////////////////////////////////////////
 
+  let response;
+  let imageBitmap;
+
   // heightmap
-  let response = await fetch(hfDir + guiInputs.heightfield + '.png');
-  let imageBitmap = await createImageBitmap(await response.blob());
-  const [srcWidth, srcHeight] = [imageBitmap.width, imageBitmap.height];
-  
-  // ping-pong buffers for 2d render
-  hfTextures = [0, 1].map((index) => {
-    return createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      false,
-      `hf_${guiInputs.heightfield}_${index}`
+
+  //pre-load a set of existing heightfield textures
+  heightfields.forEach(async heightFieldFileName =>{
+    response = await fetch(hfDir + heightFieldFileName + '.png');
+    imageBitmap = await createImageBitmap(await response.blob());
+    hfTextureArr.push(
+      createTextureFromImage(
+        device,
+        imageBitmap,
+        false,
+        true,
+        `hf_${heightFieldFileName}`
+      )
     );
-  });
-  device.queue.copyExternalImageToTexture(
-    { source: imageBitmap },
-    { texture: hfTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
-  );
+  });  
   
-  // pre-load all the uplift textures
-  // CAN'T directly push hfTextures[0] into hfTextureArr as the 1st element because .push() saves a pointer to the original obejct and it'll cause resource conflict in copyTextureToTexture call
-  hfTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      true,
-      `hf_${guiInputs.heightfield}`
-    )
-  );
-
-  let nextTex = heightfields[1];
-  response = await fetch(hfDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  hfTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      true,
-      `hf_${nextTex}`
-    )
-  );
-
   // uplift
   response = await fetch(upliftDir + guiInputs.uplift + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
@@ -474,7 +455,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   );
   upliftTextureArr.push(currUpliftTexture);
   
-  nextTex = uplifts[1];
+  let nextTex = uplifts[1];
   response = await fetch(upliftDir + nextTex + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
   upliftTextureArr.push(
@@ -485,41 +466,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       true,
       `uplift_${nextTex}`
     )
-  );
-
-  // stream area map
-  // response = await fetch(streamPath);
-  // imageBitmap = await createImageBitmap(await response.blob());
-
-  // // ping-pong buffers for fluvial calculation
-  // const streamTextures = [0, 1].map(() => {
-  //   return device.createTexture({
-  //     size: [srcWidth, srcHeight, 1], // assuming same resolution as heightmap
-  //     format: 'rgba8unorm',
-  //     usage:
-  //       GPUTextureUsage.COPY_DST |
-  //       GPUTextureUsage.STORAGE_BINDING |
-  //       GPUTextureUsage.TEXTURE_BINDING |
-  //       GPUTextureUsage.RENDER_ATTACHMENT,
-  //   });
-  // });
-  // device.queue.copyExternalImageToTexture(
-  //   { source: imageBitmap },
-  //   { texture: streamTextures[currSourceTexIndex] },
-  //   [srcWidth, srcHeight]
-  // );
-  const streamTextures = [0, 1].map(() => {
-    return device.createBuffer({
-      size: srcHeight * srcWidth * 4,
-      usage: GPUBufferUsage.STORAGE |
-             GPUBufferUsage.COPY_DST |
-             GPUBufferUsage.COPY_SRC,
-    });
-  });
-  device.queue.writeBuffer(
-    streamTextures[currSourceTexIndex],
-    0,
-    new Float32Array(srcHeight * srcWidth),
   );
 
   // custom brush texture
@@ -536,7 +482,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
   //////////////////////////////////////////////////////////////////////////////
-  
+
   const erosionComputePipeline = device.createComputePipeline({
     layout: 'auto',
     compute: {
@@ -571,89 +517,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       ],
   });
 
-  // input/output textures
-  const computeBindGroupDescriptor0: GPUBindGroupDescriptor = {
-    label: "compute bind group descriptor 0",
-    layout: erosionComputePipeline.getBindGroupLayout(1),
-    entries: [
-      {
-        binding: 1,
-        resource: hfTextures[0].createView(),
-      },
-      {
-        binding: 2,
-        resource: hfTextures[1].createView(),
-      },
-      {
-        binding: 3,
-        resource: upliftTextures[0].createView(), // currUpliftTexture
-      },
-      {
-        binding: 4,
-        resource: upliftTextures[1].createView(),
-      },
-      {
-        binding: 5,
-        resource: {buffer: streamTextures[0]}, //streamTextures[0].createView(),
-      },
-      {
-        binding: 6,
-        resource: {buffer: streamTextures[1]},//streamTextures[1].createView(),
-      },
-      // {
-      //   binding: 5,
-      //   resource: streamTextures[0].createView(),
-      // },
-      // {
-      //   binding: 6,
-      //   resource: streamTextures[1].createView(),
-      // },
-    ],
-  };
-
-  const computeBindGroupDescriptor1: GPUBindGroupDescriptor = {
-    label: "compute bind group descriptor 1",
-    layout: erosionComputePipeline.getBindGroupLayout(1),
-    entries: [
-      {
-        binding: 1,
-        resource: hfTextures[1].createView(),
-      },
-      {
-        binding: 2,
-        resource: hfTextures[0].createView(),
-      },
-      {
-        binding: 3,
-        resource: upliftTextures[1].createView(), //currUpliftTexture
-      },
-      {
-        binding: 4,
-        resource: upliftTextures[0].createView(),
-      },
-      {
-        binding: 5,
-        resource: {buffer: streamTextures[1]},//streamTextures[1].createView(),
-      },
-      {
-        binding: 6,
-        resource: {buffer: streamTextures[0]},//streamTextures[0].createView(),
-      },
-      // {
-      //   binding: 5,
-      //   resource: streamTextures[1].createView(),
-      // },
-      // {
-      //   binding: 6,
-      //   resource: streamTextures[0].createView(),
-      // },
-    ],
-  };
-  
-  let computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
-  let computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
-  let computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
-
   // custom brush
   const unifBrushBufferSize =
     4 * 2 +         // 2d brush position
@@ -666,11 +529,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     size: unifBrushBufferSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-
-  // const brushSampler = device.createSampler({
-  //   magFilter: 'nearest',
-  //   minFilter: 'nearest',
-  // });
 
   const brushBindGroupDescriptor: GPUBindGroupDescriptor = {
     label: "brush bind group descriptor",
@@ -686,16 +544,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         binding: 1,
         resource: currBrushTexture.createView(),
       },
-      // {
-      //   binding: 2,
-      //   resource: brushSampler,
-      // }
     ],
   };
   let brushProperties = device.createBindGroup(brushBindGroupDescriptor);
-
-  terrainQuad.createTerrainBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex], terrainUnifBuffer);
-  inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
 
   // hard-coded for milestone 1
   const terrainParams: TerrainParams = new TerrainParams();
@@ -707,7 +558,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       let rayDir = rayCast(camera, w, h, clickX, clickY); //this ray is in world coordinates
       let rayOrigin = vec3.create(camera.getPosition()[0], camera.getPosition()[1],camera.getPosition()[2]);
             
-      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(rayOrigin, rayDir);
+      const [doesRayIntersectPlane, intersectionPointInWorldSpace] = rayPlaneIntersection(rayOrigin, rayDir, terrainParams);
       let px = -1, py = -1;
       if(doesRayIntersectPlane) {
 
@@ -723,8 +574,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           
 	      let uv = vec3.div(numerator, denom);    // remap the vec2 point to a 0->1 range
         
-        px = Math.floor(uv[0]  * srcWidth);
-        py = Math.floor(uv[2] * srcHeight);
+        px = Math.floor(uv[0]  * hfTextures[currSourceTexIndex].width);
+        py = Math.floor(uv[2] * hfTextures[currSourceTexIndex].height);
       }
       upliftPainted[0] = px;
       upliftPainted[1] = py;
@@ -732,7 +583,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
 
   function frame() {
     // Sample is no longer the active page.
-    if (!pageState.active) return;
+    if (!pageState.active) return;    
 
     if(clicked) {
       rayCastToPaintTerrainOnClick();
@@ -746,67 +597,91 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
 
     stats.begin();
 
-    // logging
-    // console.log("============== CAMERA VIEW MATRIX ==============");
-    // console.log("[" + camera.viewMatrix()[0] + "," + camera.viewMatrix()[4] + "," + camera.viewMatrix()[8] + "," + camera.viewMatrix()[3] + ",");
-    // console.log(camera.viewMatrix()[1] + "," + camera.viewMatrix()[5] + "," + camera.viewMatrix()[9] + "," + camera.viewMatrix()[7] + ",");
-    // console.log(camera.viewMatrix()[2] + "," + camera.viewMatrix()[6] + "," + camera.viewMatrix()[10] + "," + camera.viewMatrix()[11] + ",");
-    // // console.log(camera.viewMatrix()[12] + "," + camera.viewMatrix()[13] + "," + camera.viewMatrix()[14] + "," + camera.viewMatrix()[15] + "]");
-    // console.log("============== CAMERA POSITION ==============");
-    // console.log("[" + camera.getPosition()[0] + "," + camera.getPosition()[1] + "," + camera.getPosition()[2] + "]");
-    // // console.log("============== CAMERA UP ==============");
-    // // console.log("[" + camera.Up()[0] + "," + camera.Up()[1] + "," + camera.Up()[2] + "]");
-
     const commandEncoder = device.createCommandEncoder();
     
     // update compute bindGroups if input textures changed
     if (inputsChanged > -1) {
-      if (inputsChanged == 0) {      
-        // console.log('currSourceTexIndex: ' +currSourceTexIndex);
-        // console.log('src: ' + hfTextureArr[hfTextureAtlas[guiInputs.heightfield]].label);
-        // console.log('old: ' + hfTextures[currSourceTexIndex].label);
+      if (inputsChanged == 0) {
+
+        //find the index of the selected heightfield on GUI in the pre-loaded heightfield texture array
+        let currHfIdx = 0;        
+        hfTextureArr.forEach(function (hfTexture, index) {
+          console.log(hfTexture.label, guiInputs.heightfield);
+          if(hfTexture.label == `hf_${guiInputs.heightfield}`) {
+            currHfIdx = index;
+          }
+        });
+
+        let currHfTexture = hfTextureArr[currHfIdx];
+
+        //this check is necessary for the first ever iteration
+        if(hfTextures[0] && hfTextures[1]) {
+        hfTextures[0].destroy();
+        hfTextures[1].destroy();
+        streamTextures[0].destroy();
+        streamTextures[1].destroy();
+        steepestFlowBuffer.destroy();
+        }
+  
+        var hfWidth = currHfTexture.width;
+        var hfHeight = currHfTexture.height;
+        
+        //after destroying, create them again with the different size
+        hfTextures = [0, 1].map((index) => {
+          return createTextureOfSize(
+            device,
+            hfWidth,
+            hfHeight,
+            false,
+            `hf_${guiInputs.heightfield}_${index}`
+          );          
+        });
+
+        // ping-pong buffers for fluvial calculation
+        streamTextures = [0, 1].map(() => {
+          return device.createBuffer({
+            size: currHfTexture.width * currHfTexture.height * 4, // 4 bytes per float
+            usage: GPUBufferUsage.STORAGE |
+                   GPUBufferUsage.COPY_DST |
+                   GPUBufferUsage.COPY_SRC,
+          });
+        });
+        device.queue.writeBuffer(
+          streamTextures[currSourceTexIndex],
+          0,
+          new Float32Array(hfHeight * hfWidth),
+        );
+
+        // steepest flow texture
+        steepestFlowBuffer= device.createBuffer({
+          size: hfWidth * hfHeight * 4,   // same resolution as heightmap
+          usage:
+            GPUBufferUsage.COPY_DST |
+            GPUBufferUsage.STORAGE
+        });
+        device.queue.writeBuffer(
+          steepestFlowBuffer,
+          0, 
+          new Float32Array(hfHeight * hfWidth),
+        );
+
+        //need to create these bind groups here instead of outside frame() since these are dependent on hfTextures
+        terrainQuad.bindGroupCreated = false;
+        inputHeightmapDisplayQuad.bindGroupCreated = false;
+        
         commandEncoder.copyTextureToTexture(
-          {
-            texture: hfTextureArr[hfTextureAtlas[guiInputs.heightfield]], // source
+          {            
+            texture: currHfTexture, // source
           },
           {
             texture: hfTextures[currSourceTexIndex], // destination
           },
           {
-            width: srcWidth,
-            height: srcHeight,
+            width: currHfTexture.width,
+            height: currHfTexture.height,
           },
         );
-        // console.log('new: ' + hfTextures[currSourceTexIndex].label);
       }
-
-      computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
-      computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
-      computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
-
-      if (inputsChanged == 1) {
-        commandEncoder.copyTextureToTexture(
-          {
-            texture: upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]], // source
-          },
-          {
-            texture: upliftTextures[currSourceTexIndex], // destination
-          },
-          {
-            width: srcWidth,
-            height: srcHeight,
-          },
-        );
-        computeBindGroupDescriptor0.entries[2].resource = upliftTextures[0].createView();
-        computeBindGroupDescriptor0.entries[3].resouce = upliftTextures[1].createView();
-        computeBindGroupDescriptor1.entries[2].resource = upliftTextures[1].createView(); 
-        computeBindGroupDescriptor1.entries[3].resource = upliftTextures[0].createView();  
-      }
-      
-      computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
-      computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
-      computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
       
       if (inputsChanged == 2) {
         console.log(currBrushTexture.label);
@@ -817,8 +692,57 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       inputsChanged = -1;
     }
 
+    terrainQuad.createTerrainBindGroup(terrainRenderPipeline, uniformBuffer, 0, sampler, hfTextures[currSourceTexIndex], terrainUnifBuffer);
+    inputHeightmapDisplayQuad.createBindGroup(uiRenderPipeline, uniformBuffer, offset, sampler, hfTextures[currSourceTexIndex]);
+
     //compute pass goes in the following stub
     {
+
+      const computeBindGroupDescriptorCurr: GPUBindGroupDescriptor = {
+        label: "compute bind group descriptor curr",
+        layout: erosionComputePipeline.getBindGroupLayout(1),
+        entries: [
+          {
+            binding: 1,
+            resource: hfTextures[currSourceTexIndex].createView(),
+          },
+          {
+            binding: 2,
+            resource: hfTextures[(currSourceTexIndex + 1) % 2].createView(),
+          },
+          {
+            binding: 3,
+            resource: upliftTextures[currSourceTexIndex].createView(), // currUpliftTexture
+          },
+          {
+            binding: 4,
+            resource: upliftTextures[(currSourceTexIndex + 1) % 2].createView(),
+          },
+          {
+            binding: 5,
+            resource: {
+              buffer: streamTextures[currSourceTexIndex]
+            },
+          },
+          {
+            binding: 6,
+            resource: {
+              buffer: streamTextures[(currSourceTexIndex + 1) % 2]
+            },
+          },
+          {
+            binding: 7,
+            resource: 
+            {
+               buffer: steepestFlowBuffer,
+            },
+          } 
+        ],
+      };
+
+      let computeBindGroupCurr = device.createBindGroup(computeBindGroupDescriptorCurr);
+
+
       const computePass = commandEncoder.beginComputePass();
       computePass.setPipeline(erosionComputePipeline);
 
@@ -827,7 +751,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         simUnifBuffer,
         0,
         new Float32Array([
-            terrainParams.nx, terrainParams.ny,
+            hfTextures[currSourceTexIndex].width, hfTextures[currSourceTexIndex].height,
             terrainParams.lowerVertX, terrainParams.lowerVertY,
             terrainParams.upperVertX, terrainParams.upperVertY,
             terrainParams.cellDiagX, terrainParams.cellDiagY,
@@ -844,17 +768,18 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         0,
         new Float32Array([
             upliftPainted[0], upliftPainted[1],
-            guiInputs.brushScale, guiInputs.brushStrength,
+            useCustom ? MAX_BRUSH_SCALE - guiInputs.brushScale : guiInputs.brushScale,
+            guiInputs.brushStrength,
             erase, useCustom,
         ])
       );
 
       computePass.setBindGroup(0, simulationConstants);
-      computePass.setBindGroup(1, computeBindGroupArr[currSourceTexIndex]);
+      computePass.setBindGroup(1, computeBindGroupCurr);
       computePass.setBindGroup(2, brushProperties);
       computePass.dispatchWorkgroups(
-        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
-        Math.ceil(Math.max(srcWidth, srcHeight) / 8) + 1,
+        Math.ceil(Math.max(hfTextures[currSourceTexIndex].width, hfTextures[currSourceTexIndex].height) / 8) + 1,
+        Math.ceil(Math.max(hfTextures[currSourceTexIndex].width, hfTextures[currSourceTexIndex].height) / 8) + 1
       );
       computePass.end();
       currSourceTexIndex = (currSourceTexIndex + 1) % 2;
