@@ -40,6 +40,7 @@ let brushTextureArr : GPUTexture[] = [];
 let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
 let currUpliftTexture : GPUTexture;
 let currBrushTexture : GPUTexture;
+let flowSteepestTex : GPUTexture;
 
 let currSourceTexIndex = 0; // Ping-Pong texture index
 let clicked = false;
@@ -509,6 +510,21 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     [srcWidth, srcHeight]
   );
 
+  // steepest flow texture
+  const steepestFlowBuffer= device.createBuffer({
+    size: srcWidth * srcHeight * 2 * 4,   // same resolution as heightmap
+    usage:
+      GPUBufferUsage.COPY_DST |
+      GPUBufferUsage.STORAGE
+  });
+  var zeros = new Float32Array(srcWidth * srcHeight * 2); // 2 for 2 channels
+  zeros.fill(0);
+  device.queue.writeBuffer(
+    steepestFlowBuffer,
+    0, 
+    zeros.buffer,
+    );
+
   // custom brush texture
   brushTextureArr = await Promise.all([
     await createTextureFromImageWithMip(device,
@@ -523,7 +539,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   //////////////////////////////////////////////////////////////////////////////
   // Erosion Simulation Compute Pipeline
   //////////////////////////////////////////////////////////////////////////////
-  
+
   const erosionComputePipeline = device.createComputePipeline({
     layout: 'auto',
     compute: {
@@ -587,6 +603,13 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         binding: 6,
         resource: streamTextures[1].createView(),
       },
+      {
+        binding: 7,
+        resource: 
+        {
+           buffer: steepestFlowBuffer,
+        },
+      }
     ],
   };
 
@@ -618,6 +641,12 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         binding: 6,
         resource: streamTextures[0].createView(),
       },
+      {
+        binding: 7,
+        resource: 
+        {
+           buffer: steepestFlowBuffer,
+        },      }
     ],
   };
   

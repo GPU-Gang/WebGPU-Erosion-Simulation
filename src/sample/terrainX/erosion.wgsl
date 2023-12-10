@@ -35,6 +35,7 @@ struct AABB {
 @group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(5) var inStream : texture_2d<f32>;
 @group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<vec2i>;
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
@@ -113,6 +114,13 @@ fn Slope(p : vec2i, q : vec2i) -> f32 {
   return (Height(q) - Height(p)) / d;
 }
 
+fn SetFlowSteepest(i: i32, data: vec2i)
+{
+  var dataXIdx = i * 2 + 0;
+  var dataYIdx = i * 2 + 1;
+  steepestFlowBuffer[i] = data;
+}
+
 fn GetFlowSteepest(p : vec2i) -> vec2i {
   var d = vec2i();
   var maxSlope = 0.0;
@@ -126,6 +134,10 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
   return d;
 }
 
+fn GetFlowSteepestFast(i : i32) -> vec2i {
+  return steepestFlowBuffer[i];
+}
+
 fn Stream(p : vec2i) -> f32 {
   if (p.x < 0 || p.x >= simParams.nx || p.y < 0 || p.y >= simParams.ny) { return 0.0; }
   
@@ -136,7 +148,7 @@ fn WaterSteepest(p : vec2i) -> f32 {
   var water = 0.0;
   for (var i = 0; i < 8; i++) {
       var q = p + neighbors[i];
-      var fd = GetFlowSteepest(q);
+      var fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
       if ((q + fd).x == p.x && (q + fd).y == p.y) {
         water += Stream(q);
       }
@@ -258,20 +270,37 @@ fn main(
 ) {
   let idX = i32(GlobalInvocationID.x);
   let idY = i32(GlobalInvocationID.y);
-  if (idX < 0 || idY < 0) { return; }
-  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
+  // if (idX < 0 || idY < 0) { return; }
+  // if (idX >= simParams.nx || idY >= simParams.ny) { return; }
 
   var id : i32 = ToIndex1D(idX, idY);
   var p : vec2i = vec2i(idX, idY);
   var data : vec4f = Read(p);
   var cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
 
+  var newHeight = 0.0;
+  var borderNode: bool = false;
+  var d: vec2i;
   // Border nodes are fixed to zero (elevation and drainage)
   if (p.x == 0 || p.x == simParams.nx - 1 ||
-      p.y == 0 || p.y == simParams.ny - 1) {
+      p.y == 0 || p.y == simParams.ny - 1)
+  {
     data.x = 0.0;
     data.y = 1.0 * length(cellDiag);
     Write(p, data);
+    borderNode = true;
+  }
+  else
+  {
+    // Erosion at p (relative to steepest)
+    d = GetFlowSteepest(p);
+    SetFlowSteepest(id, d);
+  }
+
+  workgroupBarrier(); // workgroup barrier must happen in uniform control flow
+
+  if (borderNode)
+  {
     return;
   }
 
@@ -281,14 +310,12 @@ fn main(
   data.y = 1.0 * length(cellDiag);
   data.y += waterIncr;
 
-  // Erosion at p (relative to steepest)
-  var d = GetFlowSteepest(p);
   var receiver = Read(p + d);
   var pSlope = abs(Slope(p + d, p));
 
   var erosion = k * pow(data.y, p_sa) * pow(pSlope, p_sl);
 
-  var newHeight = data.x;
+  newHeight = data.x;
   if (erosionMode == 0) {           // Stream power
     newHeight -= dt * (erosion);
   }
