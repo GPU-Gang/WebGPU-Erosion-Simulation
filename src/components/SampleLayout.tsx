@@ -134,7 +134,7 @@ const SampleLayout: React.FunctionComponent<
             right: 10,
           }}
           ref={guiParentRef}
-        ></div>
+        ><input id="img-path" type="file"/></div>
         <canvas ref={canvasRef}></canvas>
       </div>
     </main>

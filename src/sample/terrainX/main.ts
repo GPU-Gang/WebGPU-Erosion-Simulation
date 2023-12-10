@@ -20,25 +20,17 @@ const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest1', 'hfTest5'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
 
+
 const MIN_BRUSH_SCALE = 0;
 const MAX_BRUSH_SCALE = 10;
 
-enum upliftTextureAtlas {
-  alpes_noise,
-  lambda,
-}
-enum brushTextureAtlas {
-  pattern1_bg,
-  pattern2_bg,
-  pattern3_bg,
-}
 // Pre-loaded textures
 let hfTextureArr : GPUTexture[] = [];
 let upliftTextureArr : GPUTexture[] = [];
 let brushTextureArr : GPUTexture[] = [];
 
 let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
-let currUpliftTexture : GPUTexture;
+let upliftTextures : GPUTexture[] = []; // Ping-pong buffers for uplift fields
 let currBrushTexture : GPUTexture;
 let streamTextures : GPUTexture[] = [];
 let steepestFlowBuffer : GPUBuffer;
@@ -53,6 +45,10 @@ let upliftPainted = vec2.fromValues(-1, -1);
 // Geometries
 let inputHeightmapDisplayQuad: Quad;
 let terrainQuad: TerrainQuad;
+
+//state-dependent flags
+let usingCustomHeightMap = false;
+let customHfImageBitmap = null;
 
 function setupGeometry(device: GPUDevice)
 {
@@ -277,24 +273,46 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     useCustomBrush: false,
     customBrush: customBrushes[0],
     brushScale: MAX_BRUSH_SCALE,
-    brushStrength: 10, 
+    brushStrength: 10,
+    heightFieldPath: "Not in use",
+    onClickFunc: function() {
+      var input = document.getElementById('img-path');
+      input.addEventListener('change', async function() {
+        const target = input as HTMLInputElement;        
+          var file = target.files[0];
+          if(target.files.length) { // needed to handle the case where the user just closes the file dialog
+            const url = URL.createObjectURL(file);
+            const response = await fetch(url);
+            customHfImageBitmap = await createImageBitmap(await response.blob());
+            usingCustomHeightMap = true;
+            inputsChanged = 0;
+            guiInputs.heightFieldPath = file.name;
+            for (var i in gui.__controllers) {
+              gui.__controllers[i].updateDisplay();
+            }
+            target.value = ''; //using file upload a second (or more) time(s) won't work without this
+        }
+      });
+      input.click();
+    }
   };
 
   let inputsChanged = 0;
   const onChangeTextureHf = () => {
     inputsChanged = 0;
+    usingCustomHeightMap = false;
   };
 
   const onChangeTextureUplift = () => {
-    currUpliftTexture = upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]];
     inputsChanged = 1;
   };
 
   const onChangeTextureBrush = () => {
-    currBrushTexture = brushTextureArr[brushTextureAtlas[guiInputs.customBrush]];
+    currBrushTexture = brushTextureArr[customBrushes.indexOf(guiInputs.customBrush)];
     inputsChanged = 2;
   };
-  
+
+   
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
   gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
   gui.add(guiInputs, 'eraseTerrain');
@@ -302,6 +320,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
   gui.add(guiInputs, 'brushScale', MIN_BRUSH_SCALE, MAX_BRUSH_SCALE, 1); // optional numbers: min, max, step
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
+  gui.add(guiInputs, 'heightFieldPath').name("Custom Height Map");
+  gui.add(guiInputs, 'onClickFunc').name('Upload Custom Height Map');
+  
 
   //////////////////////////////////////////////////////////////////////////////
   // WebGPU Context Setup
@@ -409,7 +430,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   let imageBitmap;
 
   // heightmap
-
   //pre-load a set of existing heightfield textures
   heightfields.forEach(async heightFieldFileName =>{
     response = await fetch(hfDir + heightFieldFileName + '.png');
@@ -423,64 +443,32 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         `hf_${heightFieldFileName}`
       )
     );
-  });  
+  });
   
   // uplift
-  response = await fetch(upliftDir + guiInputs.uplift + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-
-  const upliftTextures = [0, 1].map((index) => {
-    return createTextureFromImage(
-      device,
-      imageBitmap,
-      false,
-      false,
-      `uplift_${guiInputs.uplift}_${index}`
+  //pre-load a set of existing uplift textures
+  uplifts.forEach(async upliftFileName =>{
+    response = await fetch(upliftDir + upliftFileName + '.png');
+    imageBitmap = await createImageBitmap(await response.blob());
+    upliftTextureArr.push(
+      createTextureFromImage(
+        device,
+        imageBitmap,
+        false,
+        true,
+        `uplift_${upliftFileName}`
+      )
     );
   });
-
-  device.queue.copyExternalImageToTexture(
-    { source: imageBitmap },
-    { texture: upliftTextures[currSourceTexIndex] },
-    [imageBitmap.width, imageBitmap.height]
-  );
-  
-  // pre-load all the uplift textures
-  currUpliftTexture = createTextureFromImage(
-    device,
-    imageBitmap,
-    true, // keep it as greyscale for now cuz this is not the actual buffer but just a one-time feed of input
-    true,
-    `uplift_${guiInputs.uplift}`
-  );
-  upliftTextureArr.push(currUpliftTexture);
-  
-  let nextTex = uplifts[1];
-  response = await fetch(upliftDir + nextTex + '.png');
-  imageBitmap = await createImageBitmap(await response.blob());
-  upliftTextureArr.push(
-    createTextureFromImage(
-      device,
-      imageBitmap,
-      true,
-      true,
-      `uplift_${nextTex}`
-    )
-  );
 
   // stream area map
   response = await fetch(streamPath);
   imageBitmap = await createImageBitmap(await response.blob());
 
   // custom brush texture
-  brushTextureArr = await Promise.all([
-    await createTextureFromImageWithMip(device,
-        `${upliftDir}${customBrushes[0]}.png`, {mips: true, flipY: false}),
-    await createTextureFromImageWithMip(device,
-        `${upliftDir}${customBrushes[1]}.png`, {mips: true, flipY: false}),
-    await createTextureFromImageWithMip(device,
-        `${upliftDir}${customBrushes[2]}.png`, {mips: true, flipY: false}),
-  ]);
+  const burshPromises = customBrushes.map(async brush => 
+    await createTextureFromImageWithMip(device,`${upliftDir}${brush}.png`, {mips: true, flipY: false}));
+    brushTextureArr = await Promise.all(burshPromises);
   currBrushTexture = brushTextureArr[0];
 
   //////////////////////////////////////////////////////////////////////////////
@@ -606,48 +594,84 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     
     // update compute bindGroups if input textures changed
     if (inputsChanged > -1) {
-      if (inputsChanged == 0) {
-
-        //find the index of the selected heightfield on GUI in the pre-loaded heightfield texture array
-        let currHfIdx = 0;        
-        hfTextureArr.forEach(function (hfTexture, index) {
-          console.log(hfTexture.label, guiInputs.heightfield);
-          if(hfTexture.label == `hf_${guiInputs.heightfield}`) {
-            currHfIdx = index;
-          }
-        });
-
-        let currHfTexture = hfTextureArr[currHfIdx];
-
+      if (inputsChanged == 0 || inputsChanged == 1) {
+        let currHfTexture, currUpliftTexture;
         //this check is necessary for the first ever iteration
         if(hfTextures[0] && hfTextures[1]) {
-        hfTextures[0].destroy();
-        hfTextures[1].destroy();
-        streamTextures[0].destroy();
-        streamTextures[1].destroy();
-        steepestFlowBuffer.destroy();
+          hfTextures[0].destroy();
+          hfTextures[1].destroy();
+          upliftTextures[0].destroy();
+          upliftTextures[1].destroy();
+          streamTextures[0].destroy();
+          streamTextures[1].destroy();
+          steepestFlowBuffer.destroy();
         }
-  
+
+        if(usingCustomHeightMap) //use user-uploaded height field
+        {
+          currHfTexture = createTextureFromImage(
+            device,
+            customHfImageBitmap,
+            false,
+            true
+          )
+        }
+        else //use one of the pre-loaded height fields that the user selected from the dropdown
+        {
+          //find the index of the selected heightfield on GUI in the pre-loaded heightfield texture array
+          let currHfIdx = 0;        
+          hfTextureArr.forEach(function (hfTexture, index) {
+            if(hfTexture.label == `hf_${guiInputs.heightfield}`) {
+              currHfIdx = index;
+            }
+          });
+          currHfTexture = hfTextureArr[currHfIdx];
+          if(customHfImageBitmap) {
+            customHfImageBitmap.close(); //free up resources from custom uploaded height field, if any
+          }
+        }
+
+        //figure out the current uplift texture in use
+        {
+          let currUpliftIdx = 0;        
+          upliftTextureArr.forEach(function (upliftTexture, index) {
+            if(upliftTexture.label == `uplift_${guiInputs.uplift}`) {
+              currUpliftIdx = index;
+            }
+          });
+          currUpliftTexture = upliftTextureArr[currUpliftIdx];
+        }
+    
+        var hfWidth = currHfTexture.width;
+        var hfHeight = currHfTexture.height;
+
         //after destroying, create them again with the different size
         hfTextures = [0, 1].map((index) => {
           return createTextureOfSize(
             device,
-            currHfTexture.width,
-            currHfTexture.height,
+            hfWidth,
+            hfHeight,
             false,
             `hf_${guiInputs.heightfield}_${index}`
-          );          
+          );
         });
 
-        var hfWidth = currHfTexture.width;
-        var hfHeight = currHfTexture.height;
+        upliftTextures = [0, 1].map((index) => {
+          return createTextureOfSize(
+            device,
+            currUpliftTexture.width,
+            currUpliftTexture.height,
+            false,
+            `uplift_${guiInputs.uplift}_${index}`
+          );
+        });
 
         // ping-pong buffers for fluvial calculation
         streamTextures = [0, 1].map(() => {
           return createTextureOfSize(
             device,
-            currHfTexture.width,
-            currHfTexture.height,
+            hfWidth,
+            hfHeight,
             false,
           );
         });
@@ -681,7 +705,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           steepestFlowBuffer,
           0, 
           zeros.buffer,
-          );
+        );
 
         //need to create these bind groups here instead of outside frame() since these are dependent on hfTextures
         terrainQuad.bindGroupCreated = false;
@@ -699,26 +723,22 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             height: currHfTexture.height,
           },
         );
-        // console.log('new: ' + hfTextures[currSourceTexIndex].label);
+
+        commandEncoder.copyTextureToTexture(
+          {            
+            texture: currUpliftTexture, // source
+          },
+          {
+            texture: upliftTextures[currSourceTexIndex], // destination
+          },
+          {
+            width: currUpliftTexture.width,
+            height: currUpliftTexture.height,
+          },
+        );
       }
-
-	// TODO: fix
-      // computeBindGroupDescriptor0.entries[0].resource = hfTextures[0].createView();
-      // computeBindGroupDescriptor0.entries[1].resource = hfTextures[1].createView();
-      // computeBindGroupDescriptor1.entries[0].resource = hfTextures[1].createView();
-      // computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
-
-      // if (inputsChanged == 1) {
-      //   computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
-      //   computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();  
-      // }
-      
-      // computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
-      // computeBindGroup1 = device.createBindGroup(computeBindGroupDescriptor1);
-      // computeBindGroupArr = [computeBindGroup0, computeBindGroup1];
       
       if (inputsChanged == 2) {
-        console.log(currBrushTexture.label);
         brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
         brushProperties = device.createBindGroup(brushBindGroupDescriptor);  
       }
@@ -746,7 +766,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           },
           {
             binding: 3,
-            resource: upliftTextures[currSourceTexIndex].createView(), // currUpliftTexture
+            resource: upliftTextures[currSourceTexIndex].createView(),
           },
           {
             binding: 4,
