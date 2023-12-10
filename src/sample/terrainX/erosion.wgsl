@@ -314,7 +314,7 @@ fn main(
   workgroupBarrier(); // workgroup barrier must happen in uniform control flow
 
   if (idX < 0 || idY < 0) { return; }
-  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
+  if (idX >= i32(simParams.nx) || idY >= i32(simParams.ny)) { return; }
 
   if (borderNode)
   {
