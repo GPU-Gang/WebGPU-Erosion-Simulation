@@ -10,7 +10,6 @@ import TerrainParams from './terrainParams';
 
 import {createTextureFromImageWithMip} from './mipmaps';
 
-
 // File paths
 const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
@@ -19,7 +18,7 @@ const streamPath = 'assets/stream/streamInput.png';
 const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest4', 'hfTest1', 'hfTest5'];
 const uplifts = ['alpes_noise', 'lambda'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
-
+const shading = ['Normal', 'Lambertian'];
 
 const MIN_BRUSH_SCALE = 0;
 const MAX_BRUSH_SCALE = 10;
@@ -32,7 +31,8 @@ let brushTextureArr : GPUTexture[] = [];
 let hfTextures : GPUTexture[] = []; // Ping-pong buffers for heightfields
 let upliftTextures : GPUTexture[] = []; // Ping-pong buffers for uplift fields
 let currBrushTexture : GPUTexture;
-let streamTextures : GPUTexture[] = [];
+// let streamTextures : GPUTexture[] = [];
+let streamBuffers : GPUBuffer[] = [];
 let steepestFlowBuffer : GPUBuffer;
 
 // Ping-Pong texture index
@@ -210,7 +210,7 @@ function writeMVPUniformBuffer(device: GPUDevice, uniformBuffer: GPUBuffer, buff
   );
 }
 
-function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, terrainParams: TerrainParams)
+function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, terrainParams: TerrainParams, shading: number)
 {
   // prettier-ignore
   device.queue.writeBuffer(
@@ -223,6 +223,8 @@ function writeTerrainUniformBuffer(device: GPUDevice, terrainBuffer: GPUBuffer, 
       terrainParams.lowerVertX, terrainParams.lowerVertY,
       // AABB Upper Right Corner
       terrainParams.upperVertX, terrainParams.upperVertY,
+      // 3D Render Shading Mode
+      shading
     ])
   );
 }
@@ -270,6 +272,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   const guiInputs = {
     heightfield: heightfields[0],
     uplift: uplifts[0],
+    shadingMode: shading[0],
     eraseTerrain: false,
     useCustomBrush: false,
     customBrush: customBrushes[0],
@@ -317,6 +320,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
    
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
   gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
+  gui.add(guiInputs, 'shadingMode', shading);
   gui.add(guiInputs, 'eraseTerrain');
   gui.add(guiInputs, 'useCustomBrush');
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
@@ -418,6 +422,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   const terrainUnifBufferSize = offset +
     2 * 4 +       // texture size (nx, ny)
     2 * 4 * 2 +   // AABB (vec2<f32> x2)
+    4 +           // shading mode
     0;
 
   const terrainUnifBuffer = device.createBuffer({
@@ -447,7 +452,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       )
     );
   });
-  
+
   // uplift
   //pre-load a set of existing uplift textures
   uplifts.forEach(async upliftFileName =>{
@@ -464,14 +469,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     );
   });
 
-  // stream area map
-  response = await fetch(streamPath);
-  imageBitmap = await createImageBitmap(await response.blob());
-
   // custom brush texture
   const burshPromises = customBrushes.map(async brush => 
-    await createTextureFromImageWithMip(device,`${upliftDir}${brush}.png`, {mips: true, flipY: false}));
-    brushTextureArr = await Promise.all(burshPromises);
+    await createTextureFromImageWithMip(device,`${upliftDir}${brush}.png`, {mips: true, flipY: false})
+  );
+  brushTextureArr = await Promise.all(burshPromises);
   currBrushTexture = brushTextureArr[0];
 
   //////////////////////////////////////////////////////////////////////////////
@@ -517,7 +519,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     4 * 2 +         // 2d brush position
     4 +             // brush scale
     4 +             // brush strength
-    4 * 2 +         // brush texture resolution
     4 +             // boolean useCustomBrush as an int
     4 +             // boolean eraseTerrain as an int
     0;
@@ -656,15 +657,15 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     // update compute bindGroups if input textures changed
     if (inputsChanged > -1) {
       if (inputsChanged == 0 || inputsChanged == 1) {
-        let currHfTexture, currUpliftTexture;
+        let currHfTexture, currUpliftTexture, currHfBuffer;
         //this check is necessary for the first ever iteration
-        if(hfTextures[0] && hfTextures[1]) {
+        if (hfTextures[0] && hfTextures[1]) {
           hfTextures[0].destroy();
           hfTextures[1].destroy();
           upliftTextures[0].destroy();
           upliftTextures[1].destroy();
-          streamTextures[0].destroy();
-          streamTextures[1].destroy();
+          streamBuffers[0].destroy();
+          streamBuffers[1].destroy();
           steepestFlowBuffer.destroy();
         }        
 
@@ -675,7 +676,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             customHfImageBitmap,
             false,
             true
-          )
+          );
         }
         else //use one of the pre-loaded height fields that the user selected from the dropdown
         {
@@ -728,28 +729,40 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         });
 
         // ping-pong buffers for fluvial calculation
-        streamTextures = [0, 1].map(() => {
-          return createTextureOfSize(
-            device,
-            hfWidth,
-            hfHeight,
-            false,
+        // streamTextures = [0, 1].map(() => {
+        //   return createTextureOfSize(
+        //     device,
+        //     hfWidth,
+        //     hfHeight,
+        //     false,
+        //   );
+        // });
+        // device.queue.writeTexture(
+        //   {texture: streamTextures[currSourceTexIndex],},
+        //   new Float32Array(hfWidth * hfHeight * 4),
+        //   {
+        //     offset: 0,
+        //     bytesPerRow: hfWidth * 4 * 4,  // 4 channels of 4-byte (32 bit) size floats
+        //     rowsPerImage: hfHeight
+        //   },
+        //   { width: hfWidth, height: hfHeight}
+        // );
+        
+        // as storage buffers
+        streamBuffers = [0, 1].map(() => {
+          const buffer = device.createBuffer({
+            size: hfWidth * hfHeight * 4, // same resolution as heightmap
+            usage: GPUBufferUsage.STORAGE |
+                   GPUBufferUsage.COPY_DST |
+                   GPUBufferUsage.COPY_SRC,
+          });
+          device.queue.writeBuffer(
+            buffer,
+            0,
+            new Float32Array(hfHeight * hfWidth),
           );
+          return buffer;
         });
-
-        var zeros = new Float32Array(hfWidth * hfHeight * 4); // 4 for 4 channels
-        zeros.fill(0);
-
-        device.queue.writeTexture(
-          {texture: streamTextures[currSourceTexIndex],},
-          zeros,
-          {
-            offset: 0,
-            bytesPerRow: hfWidth * 4 * 4,  // 4 channels of 4-byte (32 bit) size floats
-            rowsPerImage: hfHeight
-          },
-          { width: hfWidth, height: hfHeight}
-        );
 
         // steepest flow texture
         steepestFlowBuffer= device.createBuffer({
@@ -758,14 +771,10 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             GPUBufferUsage.COPY_DST |
             GPUBufferUsage.STORAGE
         });
-
-        zeros = new Float32Array(hfWidth * hfHeight);
-        zeros.fill(0);
-
         device.queue.writeBuffer(
           steepestFlowBuffer,
           0, 
-          zeros.buffer,
+          new Uint32Array(hfHeight * hfWidth), 
         );
 
         //need to create these bind groups here instead of outside frame() since these are dependent on hfTextures
@@ -780,8 +789,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             texture: hfTextures[currSourceTexIndex], // destination
           },
           {
-            width: currHfTexture.width,
-            height: currHfTexture.height,
+            width: hfWidth,
+            height: hfHeight,
           },
         );
 
@@ -841,11 +850,13 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           },
           {
             binding: 5,
-            resource: streamTextures[currSourceTexIndex].createView(),
+            // resource: streamTextures[currSourceTexIndex].createView(),
+            resource: { buffer: streamBuffers[currSourceTexIndex] },
           },
           {
             binding: 6,
-            resource: streamTextures[(currSourceTexIndex + 1) % 2].createView(),
+            // resource: streamTextures[(currSourceTexIndex + 1) % 2].createView(),
+            resource: { buffer: streamBuffers[(currSourceTexIndex + 1) % 2] },
           },
           {
             binding: 7,
@@ -885,8 +896,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         0,
         new Float32Array([
             upliftPainted[0], upliftPainted[1],
-            useCustom ? MAX_BRUSH_SCALE - guiInputs.brushScale : guiInputs.brushScale, guiInputs.brushStrength,
-            currBrushTexture.height, currBrushTexture.width,
+            useCustom ? MAX_BRUSH_SCALE - guiInputs.brushScale : guiInputs.brushScale,
+            guiInputs.brushStrength,
             erase, useCustom,
         ])
       );
@@ -928,7 +939,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       
       // Draw main quad (terrain)
       writeMVPUniformBuffer(device, uniformBuffer, 0, terrainQuad.getModelMatrix(), camera, true);
-      writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams);
+      var shadingMode = shading.indexOf(guiInputs.shadingMode);
+      writeTerrainUniformBuffer(device, terrainUnifBuffer, terrainParams, shadingMode);
       terrainPassEncoder.setBindGroup(0, terrainQuad.bindGroup);
       terrainPassEncoder.setIndexBuffer(terrainQuad.indexBuffer, "uint32");
       terrainPassEncoder.setVertexBuffer(0, terrainQuad.posBuffer);
