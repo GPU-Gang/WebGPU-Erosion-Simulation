@@ -17,15 +17,15 @@ const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
 const heightfields = ['hfTest1', 'hfTest2'];
-const uplifts = ['alpes_noise', 'lambda'];
+const uplifts = ['lambda', 'alpes_noise'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg'];
 enum hfTextureAtlas {
   hfTest1,
   hfTest2
 }
 enum upliftTextureAtlas {
-  alpes_noise,
   lambda,
+  alpes_noise,
 }
 enum brushTextureAtlas {
   pattern1_bg,
@@ -448,7 +448,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   response = await fetch(upliftDir + guiInputs.uplift + '.png');
   imageBitmap = await createImageBitmap(await response.blob());
 
-  const upliftTextures = [0, 1].map((index) => {
+  let upliftTextures = [0, 1].map((index) => {
     return createTextureFromImage(
       device,
       imageBitmap,
@@ -468,7 +468,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   currUpliftTexture = createTextureFromImage(
     device,
     imageBitmap,
-    true, // keep it as greyscale for now cuz this is not the actual buffer but just a one-time feed of input
+    false, // keep it as greyscale for now cuz this is not the actual buffer but just a one-time feed of input
     true,
     `uplift_${guiInputs.uplift}`
   );
@@ -481,32 +481,45 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     createTextureFromImage(
       device,
       imageBitmap,
-      true,
+      false,
       true,
       `uplift_${nextTex}`
     )
   );
 
   // stream area map
-  response = await fetch(streamPath);
-  imageBitmap = await createImageBitmap(await response.blob());
+  // response = await fetch(streamPath);
+  // imageBitmap = await createImageBitmap(await response.blob());
 
-  // ping-pong buffers for fluvial calculation
+  // // ping-pong buffers for fluvial calculation
+  // const streamTextures = [0, 1].map(() => {
+  //   return device.createTexture({
+  //     size: [srcWidth, srcHeight, 1], // assuming same resolution as heightmap
+  //     format: 'rgba8unorm',
+  //     usage:
+  //       GPUTextureUsage.COPY_DST |
+  //       GPUTextureUsage.STORAGE_BINDING |
+  //       GPUTextureUsage.TEXTURE_BINDING |
+  //       GPUTextureUsage.RENDER_ATTACHMENT,
+  //   });
+  // });
+  // device.queue.copyExternalImageToTexture(
+  //   { source: imageBitmap },
+  //   { texture: streamTextures[currSourceTexIndex] },
+  //   [srcWidth, srcHeight]
+  // );
   const streamTextures = [0, 1].map(() => {
-    return device.createTexture({
-      size: [srcWidth, srcHeight, 1], // assuming same resolution as heightmap
-      format: 'rgba8unorm',
-      usage:
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.RENDER_ATTACHMENT,
+    return device.createBuffer({
+      size: srcHeight * srcWidth * 4,
+      usage: GPUBufferUsage.STORAGE |
+             GPUBufferUsage.COPY_DST |
+             GPUBufferUsage.COPY_SRC,
     });
   });
-  device.queue.copyExternalImageToTexture(
-    { source: imageBitmap },
-    { texture: streamTextures[currSourceTexIndex] },
-    [srcWidth, srcHeight]
+  device.queue.writeBuffer(
+    streamTextures[currSourceTexIndex],
+    0,
+    new Float32Array(srcHeight * srcWidth),
   );
 
   // custom brush texture
@@ -581,12 +594,20 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       },
       {
         binding: 5,
-        resource: streamTextures[0].createView(),
+        resource: {buffer: streamTextures[0]}, //streamTextures[0].createView(),
       },
       {
         binding: 6,
-        resource: streamTextures[1].createView(),
+        resource: {buffer: streamTextures[1]},//streamTextures[1].createView(),
       },
+      // {
+      //   binding: 5,
+      //   resource: streamTextures[0].createView(),
+      // },
+      // {
+      //   binding: 6,
+      //   resource: streamTextures[1].createView(),
+      // },
     ],
   };
 
@@ -612,12 +633,20 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       },
       {
         binding: 5,
-        resource: streamTextures[1].createView(),
+        resource: {buffer: streamTextures[1]},//streamTextures[1].createView(),
       },
       {
         binding: 6,
-        resource: streamTextures[0].createView(),
+        resource: {buffer: streamTextures[0]},//streamTextures[0].createView(),
       },
+      // {
+      //   binding: 5,
+      //   resource: streamTextures[1].createView(),
+      // },
+      // {
+      //   binding: 6,
+      //   resource: streamTextures[0].createView(),
+      // },
     ],
   };
   
@@ -630,7 +659,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     4 * 2 +         // 2d brush position
     4 +             // brush scale
     4 +             // brush strength
-    4 * 2 +         // brush texture resolution
     4 +             // boolean useCustomBrush as an int
     4 +             // boolean eraseTerrain as an int
     0;
@@ -758,8 +786,22 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
       computeBindGroupDescriptor1.entries[1].resource = hfTextures[0].createView();
 
       if (inputsChanged == 1) {
-        computeBindGroupDescriptor0.entries[2].resource = currUpliftTexture.createView();
-        computeBindGroupDescriptor1.entries[2].resource = currUpliftTexture.createView();  
+        commandEncoder.copyTextureToTexture(
+          {
+            texture: upliftTextureArr[upliftTextureAtlas[guiInputs.uplift]], // source
+          },
+          {
+            texture: upliftTextures[currSourceTexIndex], // destination
+          },
+          {
+            width: srcWidth,
+            height: srcHeight,
+          },
+        );
+        computeBindGroupDescriptor0.entries[2].resource = upliftTextures[0].createView();
+        computeBindGroupDescriptor0.entries[3].resouce = upliftTextures[1].createView();
+        computeBindGroupDescriptor1.entries[2].resource = upliftTextures[1].createView(); 
+        computeBindGroupDescriptor1.entries[3].resource = upliftTextures[0].createView();  
       }
       
       computeBindGroup0 = device.createBindGroup(computeBindGroupDescriptor0);
@@ -803,7 +845,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
         new Float32Array([
             upliftPainted[0], upliftPainted[1],
             guiInputs.brushScale, guiInputs.brushStrength,
-            currBrushTexture.height, currBrushTexture.width,
             erase, useCustom,
         ])
       );
