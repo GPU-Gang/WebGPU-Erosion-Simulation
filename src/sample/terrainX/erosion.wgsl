@@ -35,9 +35,11 @@ struct AABB {
 @group(1) @binding(4) var outUplift : texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(5) var inStream : texture_2d<f32>;
 @group(1) @binding(6) var outStream : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(7) var<storage, read_write> steepestFlowBuffer : array<i32>;
 
 @group(2) @binding(0) var<uniform> customBrushParams : CustomBrushParams;
 @group(2) @binding(1) var customBrush : texture_2d<f32>;
+// @group(2) @binding(2) var brushSampler : sampler;
 
 // ----------- Global parameters -----------
 // 0: Stream power
@@ -52,9 +54,6 @@ const k_h : f32 = 3.0;//2.0;
 const p_sa : f32 = 1.0;//0.8;
 const p_sl : f32 = 1.0;//2.0;
 const dt : f32 = 2.0;//1.0;
-
-// const PAINT_STRENGTH : f32 = 10.0;
-// const PAINT_RADIUS : f32 = 10.0;
 
 // next 8 neighboring cells
 const neighbors : array<vec2i, 8> = array<vec2i, 8>(
@@ -75,30 +74,18 @@ fn Height(p : vec2i) -> f32 {
 }
 
 fn UpliftAt(p : vec2i) -> f32 {
-  var PAINT_STRENGTH = customBrushParams.brushStrength;
-  var PAINT_RADIUS = customBrushParams.brushScale;
+    var color = textureLoad(inUplift, vec2u(p), 0);
 
     var pf = vec2f(p);
-    var color = textureLoad(inUplift, vec2u(p), 0);
     if (customBrushParams.brushPosX != -1 && customBrushParams.brushPosY != -1) {
       if (customBrushParams.useCustomBrush == 1) {
-        if (DrawBrush(p)) {
-          color.r += textureLoad(customBrush, vec2u(p), 0).r * customBrushParams.brushStrength;
-        }
+        color.r = DrawBrush(pf, color.r);
       }
       else {
-        var dist = distance(vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY), pf);
-        if (dist <= PAINT_RADIUS) {
-          var factor = 1.0 - dist * dist / (PAINT_RADIUS * PAINT_RADIUS);
-          if (customBrushParams.erase == 1) {
-            color.r -= PAINT_STRENGTH * factor * factor * factor;
-          }
-          else {
-            color.r += PAINT_STRENGTH * factor * factor * factor;
-          }
-        }
+        color.r = DrawPaint(pf, color.r);
       }
     }
+
     textureStore(outUplift, p, vec4f(vec3f(color.r), 1.f));
     return color.r; // also greyscale?
 }
@@ -127,8 +114,14 @@ fn Slope(p : vec2i, q : vec2i) -> f32 {
   return (Height(q) - Height(p)) / d;
 }
 
-fn GetFlowSteepest(p : vec2i) -> vec2i {
-  var d = vec2i();
+fn SetFlowSteepest(i: i32, idx: i32)
+{
+  steepestFlowBuffer[i] = idx;
+}
+
+fn GetFlowSteepest(p : vec2i, id: i32) -> vec2i {
+  var d = vec2();
+  var idx: i32;
   var maxSlope = 0.0;
   for (var i = 0; i < 8; i++) {
       var ss = Slope(p + neighbors[i], p);
@@ -137,7 +130,13 @@ fn GetFlowSteepest(p : vec2i) -> vec2i {
         d = neighbors[i];
       }
   }
+
+  SetFlowSteepest(id, idx);
   return d;
+}
+
+fn GetFlowSteepestFast(i : i32) -> vec2i {
+  return neighbors[steepestFlowBuffer[i]];
 }
 
 fn Stream(p : vec2i) -> f32 {
@@ -146,11 +145,19 @@ fn Stream(p : vec2i) -> f32 {
   return StreamAt(p);
 }
 
-fn WaterSteepest(p : vec2i) -> f32 {
+fn WaterSteepest(p : vec2i, id: i32) -> f32 {
   var water = 0.0;
   for (var i = 0; i < 8; i++) {
       var q = p + neighbors[i];
-      var fd = GetFlowSteepest(q);
+      var fd = vec2i(0);
+      if (true)
+      {
+        fd = GetFlowSteepestFast(ToIndex1DFromCoord(q));
+      }
+      else
+      {
+        fd = GetFlowSteepest(q, id);
+      }
       if ((q + fd).x == p.x && (q + fd).y == p.y) {
         water += Stream(q);
       }
@@ -207,27 +214,61 @@ fn Write(p : vec2i, data : vec4f) {
 }
 
 // Local Editing
+fn DrawPaint(pf : vec2f, colorChannel : f32) -> f32 {
+  var PAINT_STRENGTH = customBrushParams.brushStrength;
+  var PAINT_RADIUS = customBrushParams.brushScale * 2.0; // scale up for now as brush texture is using this as mip level
+
+  var dist = distance(vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY), pf);
+  if (dist <= PAINT_RADIUS) {
+    var factor = 1.0 - dist * dist / (PAINT_RADIUS * PAINT_RADIUS);
+    if (customBrushParams.erase == 1) {
+      return colorChannel - PAINT_STRENGTH * factor * factor * factor;
+    }
+    else {
+      return colorChannel + PAINT_STRENGTH * factor * factor * factor;
+    }
+  }
+
+  return colorChannel;
+}
+
 fn GetBrushAABB() -> AABB {
   var center = vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY);
-  var halfWidth = f32(customBrushParams.width / 2);
-  var halfHeight = f32(customBrushParams.height / 2);
-  var scale = customBrushParams.brushScale;
+  var halfWidth = f32(textureDimensions(customBrush).x / 2);
+  var halfHeight = f32(textureDimensions(customBrush).y / 2);
+  var scale = 1 + customBrushParams.brushScale;
 
-  var lowerLeft = vec2f(center.x - halfWidth * scale, center.y - halfHeight * scale);
-  var upperRight = vec2f(center.x + halfWidth * scale, center.y + halfHeight * scale);
+  var lowerLeft = vec2f(center.x - halfWidth / scale, center.y - halfHeight / scale);
+  var upperRight = vec2f(center.x + halfWidth / scale, center.y + halfHeight / scale);
   return AABB(lowerLeft, upperRight);
 }
 
-fn ArrayPointBrush(p : vec2i) -> vec2f {
-  var aabb = GetBrushAABB();
-  let cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
-  return aabb.lowerLeft + vec2f(p) * cellDiag;
-}
+fn DrawBrush(pf : vec2f, colorChannel : f32) -> f32 {
+  var bb = GetBrushAABB();
+  var minX = bb.lowerLeft.x;
+  var minY = bb.lowerLeft.y;
+  var maxX = bb.upperRight.x;
+  var maxY = bb.upperRight.y;
+  var withinBB = minX < pf.x && pf.x < maxX &&
+                  minY < pf.y && pf.y < maxY;
+  if (withinBB) {
+    // var texCoordf = vec2f((pf.x - minX) / f32(textureDimensions(customBrush).x),
+    //                       (pf.y - minY) / f32(textureDimensions(customBrush).y));
+    var pixelIdx = vec2u(u32(pf.x - minX), u32(pf.y - minY));
 
-fn DrawBrush(p : vec2i) -> bool {
-  var aabb = GetBrushAABB();
-  return (aabb.lowerLeft.x < ArrayPointBrush(p).x && ArrayPointBrush(p).x < aabb.upperRight.x) &&
-         (aabb.lowerLeft.y < ArrayPointBrush(p).y && ArrayPointBrush(p).y < aabb.upperRight.y);
+    var strength = customBrushParams.brushStrength * 0.1; // scale down strength for now, testing
+    if (customBrushParams.erase == 1) {
+      // use brushScale as mip level; use b channel from sampled value
+      return colorChannel - textureLoad(customBrush, pixelIdx, u32(customBrushParams.brushScale)).b * strength;
+      // color.g -= textureSampleLevel(customBrush, brushSampler, texCoordf, customBrushParams.brushScale).b / customBrushParams.brushStrength;
+    }
+    else {
+      return colorChannel + textureLoad(customBrush, pixelIdx, u32(customBrushParams.brushScale)).b * strength;
+      // color.g += textureSampleLevel(customBrush, brushSampler, texCoordf, customBrushParams.brushScale).b / customBrushParams.brushStrength;
+    }
+  }
+
+  return colorChannel;      
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -238,37 +279,52 @@ fn main(
 ) {
   let idX = i32(GlobalInvocationID.x);
   let idY = i32(GlobalInvocationID.y);
-  if (idX < 0 || idY < 0) { return; }
-  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
 
   var id : i32 = ToIndex1D(idX, idY);
   var p : vec2i = vec2i(idX, idY);
   var data : vec4f = Read(p);
   var cellDiag = vec2f(simParams.cellDiagX, simParams.cellDiagY);
 
+  var newHeight = 0.0;
+  var borderNode: bool = false;
+  var d: vec2i;
   // Border nodes are fixed to zero (elevation and drainage)
   if (p.x == 0 || p.x == simParams.nx - 1 ||
-      p.y == 0 || p.y == simParams.ny - 1) {
+      p.y == 0 || p.y == simParams.ny - 1)
+  {
     data.x = 0.0;
     data.y = 1.0 * length(cellDiag);
     Write(p, data);
+    borderNode = true;
+  }
+  else
+  {
+    // Erosion at p (relative to steepest)
+    d = GetFlowSteepest(p, id);
+  }
+
+  workgroupBarrier(); // workgroup barrier must happen in uniform control flow
+
+  if (idX < 0 || idY < 0) { return; }
+  if (idX >= simParams.nx || idY >= simParams.ny) { return; }
+
+  if (borderNode)
+  {
     return;
   }
 
   // Flows accumulation at p
-  var waterIncr = WaterSteepest(p);
+  var waterIncr = WaterSteepest(p, id);
 
   data.y = 1.0 * length(cellDiag);
   data.y += waterIncr;
 
-  // Erosion at p (relative to steepest)
-  var d = GetFlowSteepest(p);
   var receiver = Read(p + d);
   var pSlope = abs(Slope(p + d, p));
 
   var erosion = k * pow(data.y, p_sa) * pow(pSlope, p_sl);
 
-  var newHeight = data.x;
+  newHeight = data.x;
   if (erosionMode == 0) {           // Stream power
     newHeight -= dt * (erosion);
   }
