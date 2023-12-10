@@ -169,7 +169,7 @@ fn getTerrainElevation(p: vec2<f32>) -> f32
 	var denom: vec2<f32> = terrain.upperRight - terrain.lowerLeft;  // full range
 	var uv: vec2<f32> = numerator / denom;    // remap the vec2 point to a 0->1 range
 
-    var heightCol : vec4<f32> = textureSample(heightfield, heightFieldSampler, uv);
+    var heightCol : vec4<f32> = textureSampleLevel(heightfield, heightFieldSampler, uv, 0.0);
     var height : f32 = heightCol.r; // black and white means same colour in all channels
     
     // this is between 0 and 1 --> remap to correct height range
@@ -202,13 +202,12 @@ fn raymarchTerrain(ray: Ray) -> RaymarchResult
 
     var aabbTest = intersectAABB(ray);
 
-    // TODO: find a way to re-enable this optimisation because WebGPU has over strict uniformity analysis
-    // if (!aabbTest.hit)
-    // {
-    //     // didn't hit AABB
-    //     // def not hitting terrain
-    //     return result;
-    // }
+    if (!aabbTest.hit)
+    {
+        // didn't hit AABB
+        // def not hitting terrain
+        return result;
+    }
 
     var t : f32 = max(MIN_DIST, aabbTest.tNear);        // start at the point of intersection with the AABB, don't waste unnecessary marching steps
     var dist : f32 = 0;
@@ -220,13 +219,12 @@ fn raymarchTerrain(ray: Ray) -> RaymarchResult
 
     for (var i : i32 = 0; i<MAX_ITERS; i++)
     {
-        // TODO: find a way to re-enable this optimisation because WebGPU has over strict uniformity analysis
-        // if (t < aabbTest.tFar)
-        // {
-        //     // passed the AABB and didn't hit anything
-        //     // stop raymarching
-        //     break;
-        // }
+        if (t > aabbTest.tFar)
+        {
+            // passed the AABB and didn't hit anything
+            // stop raymarching
+            break;
+        }
 
         p = ray.origin + ray.direction * t;
 
@@ -238,12 +236,12 @@ fn raymarchTerrain(ray: Ray) -> RaymarchResult
             result.t = t;
             result.hitPoint = p;
 
-            // break;   // stupid webgpu uniformity analysis issue. TODO: find a way to optimise here
+            break;
         }
 
         if (dist >= MAX_DIST)
         {
-            // break;   // stupid webgpu uniformity analysis issue. TODO: find a way to optimise here
+            break;
         }
 
         t += max(dist / kr, MIN_DIST);
@@ -269,8 +267,6 @@ fn computeNormal(p: vec3<f32>, eps: vec2<f32>) -> vec3<f32>
 fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
 {
     // TODO: texture size should probably be higher when we get it from the CPU
-    var n: vec3<f32> = computeNormal(p, vec2(EPSILON));//(terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
-
 	// Terrain sides and bottom
 	if (abs(sdfBox2D(p.xz, terrain.lowerLeft, terrain.upperRight)) < EPSILON
         || abs(p.y - heightRange.x + 0.1f * (heightRange.y - heightRange.x)) < EPSILON)
@@ -283,14 +279,14 @@ fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
 	// Terrain interior
 	if (shadingMode == 0)   // normals
 	{
-        // TODO: find a way to optimise this non-uniformity nonsense
-		// var n: vec3<f32> = computeNormal(p, (terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
+        var n: vec3<f32> = computeNormal(p, vec2(EPSILON));//(terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
 		return vec4(0.2 * (vec3(3.0) + 2.0 * n.xyz), 1.0);
 	}
 	else if (shadingMode == 1)  // lambertian
 	{
 		var lightDir: vec3<f32> = normalize(vec3(0,0,0) - lightPos); // terrain located at world 0,0,0
         var ambientTerm: f32 = 0.2;
+        var n: vec3<f32> = computeNormal(p, vec2(EPSILON));//(terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
         var lambertianTerm: vec3<f32> = vec3(max(dot(n, lightDir), 0.0f) + ambientTerm);
         
         var col: vec3<f32> = vec3(1,1,1);
@@ -309,13 +305,10 @@ fn frag_main(@location(0) fs_UV : vec2<f32>) -> @location(0) vec4<f32>
     var raymarchResult : RaymarchResult = raymarchTerrain(ray);
     var outColor : vec4<f32> = vec4(0,0,0.2,1);
 
-    var terrainColor: vec4<f32> = getTerrainColour(raymarchResult.hitPoint);
-
     if (raymarchResult.hit)
     {
-        outColor = terrainColor;
-        // TODO: find a way to optimise this WebGPU non-uniformity nonsense
-        // outColor = getTerrainColour(raymarchResult.hitPoint);
+        // outColor = terrainColor;
+        outColor = getTerrainColour(raymarchResult.hitPoint);
     }
 
     // outColor = vec4((uniforms.right), 1);
