@@ -18,7 +18,7 @@ const streamPath = 'assets/stream/streamInput.png';
 const heightfields = ['hf1_256x256', 'hf2_256x256', 'hf1_1201x1201', 'hf2_1201x1201', 'hf_2250x2250', 'hf_4500x4500'];
 const uplifts = ['alpes_noise_256x256', 'alpes_noise_512x512', 'alpes_noise_1201x1201', 'alpes_noise_2250x2250', 'lambda_256x256', 'lambda_4500x4500'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
-const shading = ['Normal', 'Lambertian'];
+const shading = ['Normal', 'Lambertian', 'Colored'];
 
 const MIN_BRUSH_SCALE = 0;
 const MAX_BRUSH_SCALE = 10;
@@ -278,7 +278,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     customBrush: customBrushes[0],
     brushScale: 2,
     brushStrength: 5,
-    streamPower: 500,
+    streamPower: 200,
     heightFieldPath: "Not in use",
     onClickFunc: function() {
       var input = document.getElementById('img-path');
@@ -326,7 +326,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
   gui.add(guiInputs, 'brushScale', MIN_BRUSH_SCALE, MAX_BRUSH_SCALE, 1); // optional numbers: min, max, step
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
-  gui.add(guiInputs, 'streamPower', 500, 2000, 250);
+  gui.add(guiInputs, 'streamPower', 0, 2000, 100);
   gui.add(guiInputs, 'heightFieldPath').name("Custom Height Map");
   gui.add(guiInputs, 'onClickFunc').name('Upload Custom Height Map');
   gui.add(guiInputs, 'useRenderBundles').name("Use Render Bundles");

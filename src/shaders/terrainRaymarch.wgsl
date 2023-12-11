@@ -283,14 +283,30 @@ fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
         var n: vec3<f32> = computeNormal(p, vec2(EPSILON));//(terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
 		return vec4(0.2 * (vec3(3.0) + 2.0 * n.xyz), 1.0);
 	}
-	else if (shadingMode == 1)  // lambertian
+	else if (shadingMode == 1 || shadingMode == 2)  // lambertian
 	{
 		var lightDir: vec3<f32> = normalize(vec3(0,0,0) - lightPos); // terrain located at world 0,0,0
         var ambientTerm: f32 = 0.2;
         var n: vec3<f32> = computeNormal(p, vec2(EPSILON));//(terrain.upperRight - terrain.lowerLeft) / vec2<f32>(terrain.textureSize));
         var lambertianTerm: vec3<f32> = vec3(max(dot(n, lightDir), 0.0f) + ambientTerm);
         
-        var col: vec3<f32> = vec3(1,1,1);
+        var col: vec3<f32> = vec3(1,1,1) * 0.7;
+
+        if (shadingMode == 2)
+        {
+            if (p.y < 0.05)
+            {
+                col = vec3(0.2,0.2,1.0);
+            }
+            else if (p.y < 0.3)
+            {
+                col = vec3(0.2,1.0,0.2);
+            }
+            else if (p.y < 0.6)
+            {
+                col = vec3(0.6,0.6,0.2);
+            }
+        }
 		return vec4(lambertianTerm * col, 1.0f);
 	}
 	else
