@@ -15,8 +15,8 @@ const hfDir = 'assets/heightfields/';
 const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
-const heightfields = ['hfTest6', 'hfTest2', 'hfTest3', 'hfTest4', 'hfTest1', 'hfTest5'];
-const uplifts = ['alpes_noise', 'lambda'];
+const heightfields = ['hf1_256x256', 'hf2_256x256', 'hf1_1201x1201', 'hf2_1201x1201', 'hf_2250x2250', 'hf_4500x4500'];
+const uplifts = ['alpes_noise_256x256', 'alpes_noise_1201x1201', 'lambda_256x256'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
 const shading = ['Normal', 'Lambertian'];
 
@@ -276,8 +276,8 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     eraseTerrain: false,
     useCustomBrush: false,
     customBrush: customBrushes[0],
-    brushScale: MAX_BRUSH_SCALE,
-    brushStrength: 10,
+    brushScale: 2,
+    brushStrength: 5,
     heightFieldPath: "Not in use",
     onClickFunc: function() {
       var input = document.getElementById('img-path');
