@@ -16,6 +16,7 @@ struct CustomBrushParams {
   brushStrength : f32,
   erase         : f32,  // temp boolean to erase terrain
   useCustomBrush: f32,  // boolean
+  streamPower   : f32,
   // TODO: rotation
 }
 
@@ -97,7 +98,7 @@ fn UpliftAt(p : vec2i) -> f32 {
 fn StreamAt(p : vec2i) -> f32 {
     // let color = textureLoad(inStream, vec2u(p), 0);
     // return color.r; // also greyscale?
-    return min(inStream.data[ToIndex1DFromCoord(p)], 1000 * simParams.nx/256.0);
+    return min(inStream.data[ToIndex1DFromCoord(p)], customBrushParams.streamPower * simParams.nx/256.0);
 }
 
 fn ArrayPoint(p : vec2i) -> vec2f {
