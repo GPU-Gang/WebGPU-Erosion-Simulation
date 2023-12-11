@@ -8,27 +8,28 @@ Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](
 ![](public/assets/captures/raymarch2.gif)
 
 ## Table of Contents
-1. [Parallelized Stream Power Erosion](#parallelized-stream-power-erosion)
-2. [Features:](#features)
-    * [Raymarched Terrain](#raymarched-terrain)
-    * [Interactive Authoring](#interactive-authoring)
-    * [Terrain Paint Tool](#1-terrain-painting-tool)
-    * [Terrain Erase Tool](#2-terrain-erasing-tool)
-    * [Texture-based Brush Tool](#3-texture-based-brush-tool)
-    * [Uploading Custom Height Map](#4-uploading-custom-height-map)
-3. [Real World Data Integration](#real-world-data-integration)
-    * [Proof of Concept](#proof-of-concept)
-4. [Performance Analysis](#performance-analysis)
-    * [Workgroup Size](#1-finding-a-good-workgroup-size)
-    * [Parallel Steepest Flow Calculation](#2-steepest-flow-recalculation-vs-buffer)
-    * [Hardware Accelerated Texture Sampling](#3-texturesample-vs-texturesamplelevel)
-    * [Cumulative Performance Gain](#4-both-optimizations-combined)
-    * [Render Bundles](#5-render-bundles)
-    * [Stream Area Storage Buffers](#6-stream-storage-buffers)
-    * [Parallel Reduction](#7-unused-parallel-reduction)
-5. [Building & Running TerrainX](#building)
-6. [Milestones](#progress)
-7. [Credits](#credits)
+- [Interactive Erosion Simulation in WebGPU](#interactive-erosion-simulation-in-webgpu)
+  - [**Click here for a Live Demo!**](#click-here-for-a-live-demo)
+  - [Table of Contents](#table-of-contents)
+  - [Parallelized Stream Power Erosion](#parallelized-stream-power-erosion)
+  - [Raymarched Terrain](#raymarched-terrain)
+  - [Interactive Authoring](#interactive-authoring)
+    - [1. Terrain Painting Tool](#1-terrain-painting-tool)
+    - [2. Terrain Erasing Tool](#2-terrain-erasing-tool)
+    - [3. Texture-based Brush Tool](#3-texture-based-brush-tool)
+    - [4. Uploading Custom Height Map](#4-uploading-custom-height-map)
+  - [Real-World Data Integration](#real-world-data-integration)
+  - [Performance Analysis](#performance-analysis)
+    - [1. Finding a good workgroup size](#1-finding-a-good-workgroup-size)
+    - [2. Steepest flow recalculation vs buffer](#2-steepest-flow-recalculation-vs-buffer)
+    - [3. `textureSample` vs `textureSampleLevel`](#3-texturesample-vs-texturesamplelevel)
+    - [4. Both optimizations combined](#4-both-optimizations-combined)
+    - [5. Render Bundles](#5-render-bundles)
+    - [6. Stream Area Storage Buffers](#6-stream-area-storage-buffers)
+    - [7. \[Unused\] Parallel Reduction](#7-unused-parallel-reduction)
+  - [Building](#building)
+  - [Milestones](#milestones)
+  - [Credits](#credits)
 
 ## Parallelized Stream Power Erosion
 To address the incremental and interactive resolution of the stream power equation, the authors address the most computationally expensive aspect of solving this equation - the drainage area. The authors propose a parallel approximation of the drainage area that results in a fast convergence rate for the stream power equation. We started off by writing a **compute shader** that simulates this approximated version of the equation, and our result was as follows:  
@@ -193,7 +194,7 @@ requires an installation of [Node.js](https://nodejs.org/en/).
 - To compile the project: `npm run build`.
 
 ## Milestones
-Below are the documents that keep track of our work progress for each milestone. Each milestone is roughtly one week.
+Below are the documents that keep track of our work progress for each milestone. Each milestone is roughly one week.
 
 - [Project Pitch](https://docs.google.com/presentation/d/1U9Y6VFECVfn6mhUaep0t8t0P2r_0T2RTsyhgKOdf2Uo/edit?usp=sharing)
 - [Milestone 1](https://docs.google.com/presentation/d/1mvhx0vmb0wWAKpwc3DHh_c5nZlIF8H73mfBeCfG6G60/edit?usp=sharing)
