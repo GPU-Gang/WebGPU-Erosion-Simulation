@@ -28,6 +28,9 @@ Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](
 7. [Milestones](#milestones)
 8. [Credits](#credits)
 
+## Pipeline Overview
+![](/img/pipeline.png)
+
 ## Parallelized Stream Power Erosion
 To address the incremental and interactive resolution of the stream power equation, the authors address the most computationally expensive aspect of solving this equation - the drainage area. The authors propose a parallel approximation of the drainage area that results in a fast convergence rate for the stream power equation. We started off by writing a **compute shader** that simulates this approximated version of the equation, and our result was as follows:  
 ![](public/assets/captures/erosion_2d.gif)
