@@ -16,7 +16,7 @@ const upliftDir = 'assets/uplifts/';
 const streamPath = 'assets/stream/streamInput.png';
 // GUI dropdowns
 const heightfields = ['hf1_256x256', 'hf2_256x256', 'hf1_1201x1201', 'hf2_1201x1201', 'hf_2250x2250', 'hf_4500x4500'];
-const uplifts = ['alpes_noise_256x256', 'alpes_noise_1201x1201', 'lambda_256x256'];
+const uplifts = ['alpes_noise_256x256', 'alpes_noise_512x512', 'alpes_noise_1201x1201', 'alpes_noise_2250x2250', 'lambda_256x256', 'lambda_4500x4500'];
 const customBrushes = ['pattern1_bg', 'pattern2_bg', 'pattern3_bg']; // currently only affects uplift map
 const shading = ['Normal', 'Lambertian'];
 
