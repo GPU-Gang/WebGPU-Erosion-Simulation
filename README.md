@@ -7,6 +7,27 @@ Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](
 
 ![](public/assets/captures/raymarch2.gif)
 
+## Table of Contents
+1. [Parallelized Stream Power Erosion](#parallelized-stream-power-erosion)
+2. Features:
+  * [Raymarched Terrain](#raymarched-terrain)
+  * [Interactive Authoring](#interactive-authoring)
+    * [Terrain Paint Tool](#1-terrain-painting-tool)
+    * [Terrain Erase Tool](#2-terrain-erasing-tool)
+    * [Texture-based Brush Tool](#3-texture-based-brush-tool)
+    * [Uploading Custom Height Map](#4-uploading-custom-height-map)
+3. [Real World Data Integration](#real-world-data-integration)
+    * [Proof of Concept](#proof-of-concept)
+4. [Performance Analysis](#performance-analysis)
+    * [Workgroup Size](#1-finding-a-good-workgroup-size)
+    * [Parallel Steepest Flow Calculation](#2-steepest-flow-recalculation-vs-buffer)
+    * [Hardware Accelerated Texture Sampling](#3-texturesample-vs-texturesamplelevel)
+    * [Cumulative Performance Gain](#4-both-optimizations-combined)
+    * [Render Bundles](#5-render-bundles)
+    * [Parallel Reduction](#6-unused-parallel-reduction)
+5. [Building & Running TerrainX](#building)
+6. [Credits](#credits)
+
 ## Parallelized Stream Power Erosion
 To address the incremental and interactive resolution of the stream power equation, the authors address the most computationally expensive aspect of solving this equation - the drainage area. The authors propose a parallel approximation of the drainage area that results in a fast convergence rate for the stream power equation. We started off by writing a **compute shader** that simulates this approximated version of the equation, and our result was as follows:  
 ![](public/assets/captures/erosion_2d.gif)
@@ -30,13 +51,21 @@ Using the same controls as the painting tool, users can toggle to erase the terr
 <img src="public/assets/captures/ui_erase.png" width=300>  
 ![](public/assets/captures/erase.gif)
 
-### 4. Texture-based Brush Tool
+### 3. Texture-based Brush Tool
 Checkcing the `customBrush` box will enable users to paint and erase using a texture-based brush. The `brushScale` then represents the different mipmap levels of the original texture, resulting in a smaller brush size with a higher `brushScale`.
 
 
 <img src="public/assets/captures/ui_brush.png" width=300>
 
 ![](public/assets/captures/brush.gif)
+
+### 4. Uploading Custom Height Map  
+While our application provides some basic height maps to play around with, the user can also upload their own height map if needed by using the `Upload Custom Height Map` button on the GUI controls:  
+<img src="public/assets/captures/ui_customhf1.png" width=400>   
+Once a user clicks on the button, a file upload dialogue pops up and the user can select any height map of their choice:  
+![](public/assets/captures/ui_customhf2.png)  
+Once selected, the height map name is reflected on the GUI name placeholder and the erosion simulation picks up the custom height map:  
+![](public/assets/captures/ui_customhf3.png)  
 
 ## Real-World Data Integration
 After establishing a usable model based on the paper, we wanted to see its applicability using some real world data. We used [Earth Explorer](https://earthexplorer.usgs.gov/) to get the height field for a certain part of the world. [This](https://www.youtube.com/watch?v=kEgijZUKMGc) video was a helpful walkthrough that showed us how we could use Earth Explorer to get the required height maps.
@@ -52,16 +81,6 @@ Next, Earth Explorer shows the sections for which data is available and chops it
 Finally, we use this texture in our application, and we can see a visaulization of the Himalayas based on the Height Map used and running at a solid 80+ FPS:  
 <img src="public/assets/captures/realword_poc_terrain1.png" width=400> 
 <img src="public/assets/captures/realword_poc_terrain2.png" width=400> 
-
-## Building
-`webgpu-erosion-simulation` is built with [Typescript](https://www.typescriptlang.org/)
-and compiled using [Next.js](https://nextjs.org/). Building the project
-requires an installation of [Node.js](https://nodejs.org/en/).
-
-- Install dependencies: `npm install`.
-- For development, start the dev server which will watch and recompile
-  sources: `npm start`. You can navigate to http://localhost:3000 to view the project.
-- To compile the project: `npm run build`.
 
 ## Performance Analysis
 
@@ -109,7 +128,7 @@ Our first iteration of the terrain rendering using raymarching used `textureSamp
 |:-:|
 |![](img/opt2.png)|
 
-### Both optimizations combined
+### 4. Both optimizations combined
 
 While both the steepest flow buffer and bounding box optimisations improve performance, their real benefit shows when both are combined.
 
@@ -119,7 +138,17 @@ While both the steepest flow buffer and bounding box optimisations improve perfo
 
 We're able to get ~40 fps on the web even with 4.5k size textures when both these optimisations are enabled!
 
-### [Unused] Parallel Reduction
+### 5. Render Bundles
+[Brandon Jones](https://toji.dev/) has a great artice on [WebGPU Render Bundles](https://toji.dev/webgpu-best-practices/render-bundles), and had talked about the same in his [guest lecture](https://docs.google.com/presentation/d/1AUfD0xq5GG3SwIoG8JricAzhpHnmTt90MMl-TodWXxU/edit?usp=sharing) for our class [CIS 5650 GPU Programming Fall 2023](https://cis565-fall-2023.github.io/). According to the article, Render Bundles can assist with CPU-side optimizations by reducing the overhead with a large number of repeated Javascript calls. Although majority of our project has its processing being performed on the GPU side, we wanted to see if Render Bundles would affect our performance in any way or not. Rendering using Render Bundles can be toggled ON/OFF by using the `Use Render Bundles` checkbox on the UI:  
+<img src="public/assets/captures/ui_renderbundles.png" width=300>    
+A performance comparison with/without using Render Bundles for our application across varying texture resolutions yielded the following result:  
+| FPS: With VS Without Render Bundles |
+|:-:|
+|![](img/opt_renderbundles.png)|  
+
+As expected, we do not see any major performance improvement using Render Bundles as our application seems to be GPU bound whereas Render Bundles shine only with the CPU-side optimizations. In fact, on a high resolution 4K texture, Render Bundles seem to take a slight hit for our use case. We also asked about the same in the [WebGPU Matrix Chat](https://app.element.io/#/room/#WebGPU:matrix.org) and our theory was corroborated with the same explanation in [this thread](https://matrix.to/#/!MFogdGJfnZLrDmgkBN:matrix.org/$eLFWiqHVSwE-cXySXl89gQ6iAbSkofi7CXLS3NJzzOw?via=matrix.org).
+
+### 6. [Unused] Parallel Reduction
 
 *Performance data captured on Windows 11 Home, AMD Ryzen 7 5800H @ 3.2GHz 16 GB, Nvidia GeForce RTX 3060 Laptop GPU 6 GB, running on Google Chrome*
 
@@ -131,6 +160,21 @@ There is an unused implementation of parallel reduction in the branch `fixHeight
 
 It is evident that parallel reduction is significantly faster for texture resolutions up until 2k textures. Around 4.5k texture resolution the benefits gained from parallel reduction are not enough by themselves, and must be combined with other optimisations mentioned above.
 
+## Building
+`webgpu-erosion-simulation` is built with [Typescript](https://www.typescriptlang.org/)
+and compiled using [Next.js](https://nextjs.org/). Building the project
+requires an installation of [Node.js](https://nodejs.org/en/).
+
+- Install dependencies: `npm install`.
+- For development, start the dev server which will watch and recompile
+  sources: `npm start`. You can navigate to http://localhost:3000 to view the project.
+- To compile the project: `npm run build`.
+
 ## Credits
 
-- 3d-view-controls npm package
+- Authors of [Large-scale terrain authoring through interactive erosion simulation](https://hal.science/hal-04049125)
+- [WebGPU Samples](https://webgpu.github.io/webgpu-samples/)
+- [3d-view-controls npm package](https://www.npmjs.com/package/3d-view-controls)
+- [WebGPU Matrix Chat](https://app.element.io/#/room/#WebGPU:matrix.org)
+- [Brandon Jones](https://toji.dev/)
+- [WebGPU - All of the cores, none of the canvas](https://surma.dev/things/webgpu/) - article on compute shaders in WebGPU by Surma
