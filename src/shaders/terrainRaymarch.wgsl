@@ -275,7 +275,7 @@ fn getTerrainColour(p: vec3<f32>) -> vec4<f32>
         return vec4(0.3f, 0.29f, 0.31f, 1.0f);
     }
 	
-    var shadingMode = terrain.shadingMode;       // hardcoded
+    var shadingMode = terrain.shadingMode;
 
 	// Terrain interior
 	if (shadingMode == 0)   // normals
