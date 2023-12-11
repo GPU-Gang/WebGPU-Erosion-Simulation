@@ -317,10 +317,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     currBrushTexture = brushTextureArr[customBrushes.indexOf(guiInputs.customBrush)];
     inputsChanged = 2;
   };
-
-  const onChangeStreamPower = () => {
-    inputsChanged = 2;
-  }
    
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
   gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
@@ -330,7 +326,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
   gui.add(guiInputs, 'brushScale', MIN_BRUSH_SCALE, MAX_BRUSH_SCALE, 1); // optional numbers: min, max, step
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
-  gui.add(guiInputs, 'streamPower', 500, 2000, 250).onChange(onChangeStreamPower);
+  gui.add(guiInputs, 'streamPower', 500, 2000, 250);
   gui.add(guiInputs, 'heightFieldPath').name("Custom Height Map");
   gui.add(guiInputs, 'onClickFunc').name('Upload Custom Height Map');
   gui.add(guiInputs, 'useRenderBundles').name("Use Render Bundles");
@@ -662,13 +658,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     
     // update compute bindGroups if input textures changed
     if (inputsChanged > -1) {
-      //make erosion keep going after each brush stroke
-      if (inputsChanged == 2) {
-        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
-        brushProperties = device.createBindGroup(brushBindGroupDescriptor);
-        inputsChanged = 0;  
-      }
-
       if (inputsChanged == 0 || inputsChanged == 1) {
         let currHfTexture, currUpliftTexture, currHfBuffer;
         //this check is necessary for the first ever iteration
@@ -819,6 +808,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             height: currUpliftTexture.height,
           },
         );
+      }
+
+      if (inputsChanged == 2) {
+        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
+        brushProperties = device.createBindGroup(brushBindGroupDescriptor);
       }
 
       renderBundleNeedsToBeUpdated = true;
