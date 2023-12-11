@@ -277,6 +277,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     customBrush: customBrushes[0],
     brushScale: MAX_BRUSH_SCALE,
     brushStrength: 10,
+    streamPower: 500,
     heightFieldPath: "Not in use",
     onClickFunc: function() {
       var input = document.getElementById('img-path');
@@ -315,6 +316,9 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     inputsChanged = 2;
   };
 
+  const onChangeStreamPower = () => {
+    inputsChanged = 2;
+  }
    
   gui.add(guiInputs, 'heightfield', heightfields).onFinishChange(onChangeTextureHf);
   gui.add(guiInputs, 'uplift', uplifts).onFinishChange(onChangeTextureUplift);
@@ -324,6 +328,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
   gui.add(guiInputs, 'customBrush', customBrushes).onFinishChange(onChangeTextureBrush);
   gui.add(guiInputs, 'brushScale', MIN_BRUSH_SCALE, MAX_BRUSH_SCALE, 1); // optional numbers: min, max, step
   gui.add(guiInputs, 'brushStrength', 0, 20); // <0.3 seems not showing anything
+  gui.add(guiInputs, 'streamPower', 500, 2000, 250).onChange(onChangeStreamPower);
   gui.add(guiInputs, 'heightFieldPath').name("Custom Height Map");
   gui.add(guiInputs, 'onClickFunc').name('Upload Custom Height Map');
   
@@ -518,6 +523,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     4 +             // brush strength
     4 +             // boolean useCustomBrush as an int
     4 +             // boolean eraseTerrain as an int
+    4 +             // spe strength
     0;
   const brushUnifBuffer = device.createBuffer({
     size: unifBrushBufferSize,
@@ -595,6 +601,11 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
     
     // update compute bindGroups if input textures changed
     if (inputsChanged > -1) {
+      if (inputsChanged == 2) {
+        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
+        brushProperties = device.createBindGroup(brushBindGroupDescriptor);
+        inputsChanged = 0;  
+      }
       if (inputsChanged == 0 || inputsChanged == 1) {
         let currHfTexture, currUpliftTexture, currHfBuffer;
         //this check is necessary for the first ever iteration
@@ -746,11 +757,6 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
           },
         );
       }
-      
-      if (inputsChanged == 2) {
-        brushBindGroupDescriptor.entries[1].resource = currBrushTexture.createView();
-        brushProperties = device.createBindGroup(brushBindGroupDescriptor);  
-      }
 
       inputsChanged = -1;
     }
@@ -831,7 +837,7 @@ const init: SampleInit = async ({ canvas, pageState, gui, stats }) => {
             upliftPainted[0], upliftPainted[1],
             useCustom ? MAX_BRUSH_SCALE - guiInputs.brushScale : guiInputs.brushScale,
             guiInputs.brushStrength,
-            erase, useCustom,
+            erase, useCustom, guiInputs.streamPower,
         ])
       );
 
