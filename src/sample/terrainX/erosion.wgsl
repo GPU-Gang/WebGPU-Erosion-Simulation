@@ -98,7 +98,7 @@ fn UpliftAt(p : vec2i) -> f32 {
 fn StreamAt(p : vec2i) -> f32 {
     // let color = textureLoad(inStream, vec2u(p), 0);
     // return color.r; // also greyscale?
-    return min(inStream.data[ToIndex1DFromCoord(p)], customBrushParams.streamPower);
+    return min(inStream.data[ToIndex1DFromCoord(p)], customBrushParams.streamPower * simParams.nx/256.0);
 }
 
 fn ArrayPoint(p : vec2i) -> vec2f {
@@ -225,8 +225,10 @@ fn Write(p : vec2i, data : vec4f) {
 
 // Local Editing
 fn DrawPaint(pf : vec2f, colorChannel : f32) -> f32 {
-  var PAINT_STRENGTH = customBrushParams.brushStrength;
-  var PAINT_RADIUS = customBrushParams.brushScale * 2.0; // scale up for now as brush texture is using this as mip level
+      var brushScale = f32(simParams.nx)/256.0; 
+
+  var PAINT_STRENGTH = customBrushParams.brushStrength * 0.02* brushScale;
+  var PAINT_RADIUS = customBrushParams.brushScale * 2.0* brushScale; // scale up for now as brush texture is using this as mip level
 
   var dist = distance(vec2f(customBrushParams.brushPosX, customBrushParams.brushPosY), pf);
   if (dist <= PAINT_RADIUS) {
