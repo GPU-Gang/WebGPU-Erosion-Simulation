@@ -9,9 +9,9 @@ Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](
 
 ## Table of Contents
 1. [Parallelized Stream Power Erosion](#parallelized-stream-power-erosion)
-2. Features:
-  * [Raymarched Terrain](#raymarched-terrain)
-  * [Interactive Authoring](#interactive-authoring)
+2. [Features:](#features)
+    * [Raymarched Terrain](#raymarched-terrain)
+    * [Interactive Authoring](#interactive-authoring)
     * [Terrain Paint Tool](#1-terrain-painting-tool)
     * [Terrain Erase Tool](#2-terrain-erasing-tool)
     * [Texture-based Brush Tool](#3-texture-based-brush-tool)
@@ -24,9 +24,11 @@ Authors: [Utkarsh Dwivedi](https://linkedin.com/in/udwivedi/), [Saksham Nagpal](
     * [Hardware Accelerated Texture Sampling](#3-texturesample-vs-texturesamplelevel)
     * [Cumulative Performance Gain](#4-both-optimizations-combined)
     * [Render Bundles](#5-render-bundles)
-    * [Parallel Reduction](#6-unused-parallel-reduction)
+    * [Stream Area Storage Buffers](#6-stream-storage-buffers)
+    * [Parallel Reduction](#7-unused-parallel-reduction)
 5. [Building & Running TerrainX](#building)
-6. [Credits](#credits)
+6. [Milestones](#progress)
+7. [Credits](#credits)
 
 ## Parallelized Stream Power Erosion
 To address the incremental and interactive resolution of the stream power equation, the authors address the most computationally expensive aspect of solving this equation - the drainage area. The authors propose a parallel approximation of the drainage area that results in a fast convergence rate for the stream power equation. We started off by writing a **compute shader** that simulates this approximated version of the equation, and our result was as follows:  
@@ -52,12 +54,19 @@ Using the same controls as the painting tool, users can toggle to erase the terr
 ![](public/assets/captures/erase.gif)
 
 ### 3. Texture-based Brush Tool
-Checkcing the `customBrush` box will enable users to paint and erase using a texture-based brush. The `brushScale` then represents the different mipmap levels of the original texture, resulting in a smaller brush size with a higher `brushScale`.
+Checkcing the `customBrush` box will enable users to paint and erase using a texture-based brush. The reference textures are color gradient that comes from the original paper's demo video. We sample the `g` channel value to add onto the terrain's uplift map. You can recognize the pattern of the original texture based on the brush shape.
+
+The `brushScale` represents the different mipmap levels of the original texture. Due to the inverse correlation between mip level and texture size, i.e. the smaller the mip level, the bigger the texture, at backend we calculate `brushScale = MAX_SIZE - totalMipCount` such that at mip level=0, the brush size is the biggest in "scale".
 
 
 <img src="public/assets/captures/ui_brush.png" width=300>
 
 ![](public/assets/captures/brush.gif)
+
+| Pattern 1 | Pattern 2 | Pattern 3 |
+|:-:|:-:|:-:|
+|![](public/assets/uplifts/pattern1_bg.png)|![](public/assets/uplifts/pattern2_bg.png)|![](public/assets/uplifts/pattern3_bg.png)|
+
 
 ### 4. Uploading Custom Height Map  
 While our application provides some basic height maps to play around with, the user can also upload their own height map if needed by using the `Upload Custom Height Map` button on the GUI controls:  
@@ -104,15 +113,12 @@ The steepest flow for the erosion is calculated not once, but twice, for each pi
 
 Calculating this steepest flow only once, and then storing it in a buffer for reuse later, boosts performance significantly. This performance boost is more apparent with higher resolution textures, as with lower resolution textures the **total** number of neighbourhood samples across all pixels during a frame are not very high.
 
-| FPS: Steepest flow calculation optimisation using storage buffer |
-|:-:|
-|![](img/opt1.png)|
+| FPS: Steepest flow calculation optimisation using storage buffer | Memory Usage: Steepest flow optimisation using storage buffer |
+|:-:|:-:|
+|![](img/opt1.png)|![](img/opt4.png)|
 
 This does have an impact on memory with greater texture sizes (due to the additional steepest flow buffer), but this is acceptable for the performance gains.
 
-| Memory Usage (MBs): Steepest flow calculation optimisation using storage buffer |
-|:-:|
-|![](img/opt4.png)|
 
 ### 3. `textureSample` vs `textureSampleLevel`
 
@@ -148,7 +154,23 @@ A performance comparison with/without using Render Bundles for our application a
 
 As expected, we do not see any major performance improvement using Render Bundles as our application seems to be GPU bound whereas Render Bundles shine only with the CPU-side optimizations. In fact, on a high resolution 4K texture, Render Bundles seem to take a slight hit for our use case. We also asked about the same in the [WebGPU Matrix Chat](https://app.element.io/#/room/#WebGPU:matrix.org) and our theory was corroborated with the same explanation in [this thread](https://matrix.to/#/!MFogdGJfnZLrDmgkBN:matrix.org/$eLFWiqHVSwE-cXySXl89gQ6iAbSkofi7CXLS3NJzzOw?via=matrix.org).
 
-### 6. [Unused] Parallel Reduction
+### 6. Stream Area Storage Buffers
+
+*Performance data captured on Windows 11, Intel i7-12800H @ 2.40GHz 16GB, NVIDIA GeForce RTX 3070 Ti, running on Google Chrome*
+
+In our compute pass, we have three pairs of ping-pong buffers for different data: heightfields, uplifts and stream area. These ping-pong buffers are all storage textures, which means that they have to be in `rgba8unorm` format to be able to use the `GPUTextureUsage.STORAGE_BINDING` flag. However, most of our inputs only have greyscale values. It would be wasteful to utilize only one channel, i.e. `r`, out of four `rgba` while going through frequent texture binding for ping-ponging. In theory, we only need an array of floats to hold the greyscale values for better memory usage, and that matches perfectly the concept of storage buffer in WebGPU. 
+
+We tried switching to use storage buffers for stream area because streams is the only data that's not impacted by GUI, i.e. no runtime change, and not used for any rendering stages, thus more manageable when it comes to refactoring. We ran both methods, stream area in `rgba8unorm` format GPUTextures and storage buffers in `array<f32>`, on various texture resolutions to see if the latter optimizes performance.
+
+| Memory Usage | FPS |
+|:-:|:-:|
+|![](img/optStreamMem.png)|![](img/optStreamFps.png)|
+
+As we can see from above charts, there is no big difference in FPS because changing the data structure mainly impacts on how we are storing the data, not how we are computing the data. Regarding the allocated memory, it is evident that as texture resolution increases, storage buffer in general does save more memory. The reason for the exception at 4K is unclear but my guess is either due to the `stats-js` library we use or some Chrome broswer setting.
+
+Note that the memory allocation here is at peak usage. No matter what heightfield and uplift resolution combination we have, eventually the memory usage all drops to ~30 MBs because of simulation convergence.
+
+### 7. [Unused] Parallel Reduction
 
 *Performance data captured on Windows 11 Home, AMD Ryzen 7 5800H @ 3.2GHz 16 GB, Nvidia GeForce RTX 3060 Laptop GPU 6 GB, running on Google Chrome*
 
@@ -170,6 +192,15 @@ requires an installation of [Node.js](https://nodejs.org/en/).
   sources: `npm start`. You can navigate to http://localhost:3000 to view the project.
 - To compile the project: `npm run build`.
 
+## Milestones
+Below are the documents that keep track of our work progress for each milestone. Each milestone is roughtly one week.
+
+- [Project Pitch](https://docs.google.com/presentation/d/1U9Y6VFECVfn6mhUaep0t8t0P2r_0T2RTsyhgKOdf2Uo/edit?usp=sharing)
+- [Milestone 1](https://docs.google.com/presentation/d/1mvhx0vmb0wWAKpwc3DHh_c5nZlIF8H73mfBeCfG6G60/edit?usp=sharing)
+- [Milestone 2](https://docs.google.com/presentation/d/1C4qWtwdL7sbG5eAwLpGSHp0eiF81LRQnO8A8Re6JLIo/edit?usp=sharing)
+- [Milestone 3](https://docs.google.com/presentation/d/1gfsFAKoRThtx8gYg_nAFOLUSUEzy8BMcRmjuyRnvBGs/edit?usp=sharing)
+- [Final Presentation](https://docs.google.com/presentation/d/1iHTUyID65ToaZNYz_6zfF5gauFlRNPHl7nhCTE8f3ck/edit?usp=sharing)
+
 ## Credits
 
 - Authors of [Large-scale terrain authoring through interactive erosion simulation](https://hal.science/hal-04049125)
@@ -178,3 +209,5 @@ requires an installation of [Node.js](https://nodejs.org/en/).
 - [WebGPU Matrix Chat](https://app.element.io/#/room/#WebGPU:matrix.org)
 - [Brandon Jones](https://toji.dev/)
 - [WebGPU - All of the cores, none of the canvas](https://surma.dev/things/webgpu/) - article on compute shaders in WebGPU by Surma
+- [WebGPU Fundamentals](https://webgpufundamentals.org/)
+- [WebGPU Manual](https://www.w3.org/TR/webgpu/)
